@@ -99,6 +99,7 @@ void blink(void*)
         digitalWrite(IS_ALIVE, HIGH);
         vTaskDelay(500 / portTICK_PERIOD_MS);
         digitalWrite(IS_ALIVE, LOW);
+        vTaskDelay(500 / portTICK_PERIOD_MS);
     }
 }
 
@@ -276,21 +277,6 @@ void turnOffStationLights()
 {
     station.clear();
     station.show();    
-}
-
-void spinNumbers(void*)
-{
-    while (1) {
-        station.clear();
-        station.show();
-        
-        for (int i = 0; i < 7; i++) {
-            station.setPixelColor(i, 0, 0, 0, 255);
-            station.setPixelColor(i+7, 0, 0, 0, 255);
-            station.show();
-            vTaskDelay(1000 / portTICK_PERIOD_MS);
-        }
-    }
 }
 
 void setup() 

@@ -40,12 +40,9 @@ byte mqttServer[] = { 172, 24, 1, 13 };
 MQTT client(mqttServer, 1883, mqttCallback, 512);
 char mqttBuffer[512];
 int g_timeZone;
-bool g_state;
-bool g_signalsOn;
-bool g_signalSpeaker;
-bool g_enableSignalSpeaker;
-bool g_sunsetTimerNotSet;
-unsigned long g_lastOffEvent;
+bool g_stationOn;
+bool g_lightsOn;
+bool g_timeSetDone;
 
 int g_circle[] = { 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13 };
 int g_overheadEvening[] = { 0, 1, 4, 7, 8, 11 };
@@ -56,8 +53,6 @@ Adafruit_NeoPixel bank3(BANK_3_LEDS, BANK_3_PIN, WS2812);
 Adafruit_NeoPixel station(BANK_4_LEDS, BANK_4_PIN, SK6812RGBW);
 SunSet sun;
 SerialLogHandler logHandler;
-
-std::map<int, Adafruit_NeoPixel*> g_banks;
 
 int currentTimeZone()
 {
@@ -88,13 +83,69 @@ void mqttCallback(char* topic, byte* payload, unsigned int length)
     Serial.println(topic);
 }
 
+/*
+ * Lights for normal evening looking
+ */
+void drawOverheadLights(int r, int g, int b, int w)
+{
+    station.begin();
+
+    for (int i = 0; i < 6; i++) {
+        station.setPixelColor(g_overheadEvening[i], r, g, b, w);
+    }
+    station.show();
+}
+
+void blinkToLife()
+{
+    drawOverheadLights(0, 0, 0, 150);
+    delay(400);
+    station.clear();
+    station.show();
+    delay(500);
+    drawOverheadLights(0, 0, 0, 200);
+    delay(200);
+    station.clear();
+    station.show();
+    delay(300);
+    drawOverheadLights(100, 0, 0, 150);
+    delay(150);    
+    station.clear();
+    station.show();
+    delay(200);
+    drawOverheadLights(0, 0, 0, 200);
+    delay(100);
+    station.clear();
+    station.show();
+    delay(900);
+    drawOverheadLights(0, 0, 0, 200);
+    delay(400);
+    station.clear();
+    station.show();
+    delay(100);
+    drawOverheadLights(0, 0, 100, 100);
+    delay(200);
+    station.clear();
+    station.show();
+    delay(100);
+    drawOverheadLights(0, 0, 0, 255);
+    station.show();
+}
+
+void turnOnStationLights()
+{
+    blinkToLife();
+}
+
 // setup() runs once, when the device is first turned on.
 void setup() 
 {
-    g_banks[BANK_1] = &bank1;
-    g_banks[BANK_2] = &bank2;
-    g_banks[BANK_3] = &bank3;
-    g_banks[BANK_4] = &station;
+    g_timeSetDone = true;
+    g_lightsOn = false;
+    g_stationOn = false;
+
+    sun.setPosition(LATITUDE, LONGITUDE, currentTimeZone());
+    sun.setCurrentDate(Time.year(), Time.month(), Time.day());
 
     client.connect(g_mqttName.c_str());
     if (client.isConnected())
@@ -104,14 +155,97 @@ void setup()
         /* If we can't connect, go to sleep and try again! */
         Log.error("Unable to connect to MQTT");
     }
-
-    for (const auto &bank : g_banks) {
-        bank.second->begin();
-        bank.second->show();
-    }
+    bank1.clear();
+    bank1.show();
+    bank2.clear();
+    bank2.show();
+    bank3.clear();
+    bank3.show();
+    station.clear();
+    station.show();
 }
 
 // loop() runs over and over again, as quickly as it can execute.
 void loop() 
 {
+    static system_tick_t nextTimeout = 0;
+    int mpm = Time.minute() + (Time.hour() * 60);
+
+    /* Update time and date. Note this is done after 2am to handle changes
+     * in timezone. For the first 2 hours, the sunset/sunrise will be slightly off */
+    if (Time.hour() == 3 && !g_timeSetDone) {
+        Particle.syncTime();
+        waitUntil(Particle.syncTimeDone);
+        sun.setCurrentDate(Time.year(), Time.month(), Time.day());
+        sun.setTZOffset(currentTimeZone());
+        g_timeSetDone = true;
+    }
+    else if (Time.hour() != 3) {
+        g_timeSetDone = false;
+    }
+
+    double sunset = sun.calcSunset();
+    double sunrise = sun.calcSunrise();
+
+    if (mpm >= (sunrise - 15) && g_lightsOn) {
+        if (millis() > nextTimeout) {
+            int bank = random(0, 2);
+            int entry = 0;
+            bool foundAndTurnedOff = false;
+            int pixelCount = 15;
+            while (!foundAndTurnedOff && pixelCount > 0) {
+                switch (bank) {
+                    case 0:
+                        entry = random(0, bank1.getNumLeds());
+                        if (bank1.getPixelColor(entry) != 0) {
+                            bank1.setPixelColor(entry, 0, 0, 0);
+                            foundAndTurnedOff = true;
+                        }
+                        else {
+                            pixelCount--;
+                        }
+                        break;
+                    case 1:
+                        entry = random(0, bank1.getNumLeds());
+                        if (bank1.getPixelColor(entry) != 0) {
+                            bank1.setPixelColor(entry, 0, 0, 0);
+                        }
+                        else {
+                            pixelCount--;
+                        }
+                        break;
+                    case 2:
+                        entry = random(0, bank1.getNumLeds());
+                        if (bank1.getPixelColor(entry) != 0) {
+                            bank1.setPixelColor(entry, 0, 0, 0);
+                        }
+                        else {
+                            pixelCount--;
+                        }
+                        break;
+                    default:
+                        Log.info("Shouldn't have gotten here");
+                        break;
+                }
+                nextTimeout = random(ONE_MINUTE, FIVE_MINUTES);
+            }
+            if (pixelCount == 0)
+                g_lightsOn = false;
+        }
+    }
+
+    if (mpm >= sunrise && g_stationOn) {
+        station.clear();
+        station.show();
+        g_stationOn = false;
+    }
+
+    if (mpm >= (sunset - 15) && !g_lightsOn) {
+
+    }
+
+    if ((mpm >= sunset) && !g_stationOn) {
+        blinkToLife();
+        g_stationOn = true;
+    }
 }

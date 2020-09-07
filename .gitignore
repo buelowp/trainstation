@@ -1,0 +1,4 @@
+src/trainstation.cpp
+lib/
+target/
+.vscode/

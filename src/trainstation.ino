@@ -2,10 +2,11 @@
 #include <MQTT.h>
 #include <map>
 
-#include "house.h"
+#include "block.h"
+#include "houses.h"
 #include "station.h"
 
-#define APP_ID              15
+#define APP_ID              22
 
 #define TIME_BASE_YEAR        2020
 #define CST_OFFSET          -6
@@ -15,15 +16,16 @@
 #define ONE_MINUTE          (ONE_SECOND * 60)
 #define FIVE_MINUTES        (ONE_MINUTE * 5)
 #define ONE_HOUR            (ONE_MINUTE * 60)
+#define TWELVE_HOURS        (ONE_HOUR * 12)
 
 #define LATITUDE            41.12345
 #define LONGITUDE           -87.98765
 #define CST_OFFSET          -6
 #define DST_OFFSET          (CST_OFFSET + 1)
 
-#define BANK_1_LEDS         3
-#define BANK_2_LEDS         3
-#define BANK_3_LEDS         5
+#define BANK_1_LEDS         6
+#define BANK_2_LEDS         6
+#define BANK_3_LEDS         6
 #define BANK_4_LEDS         14
 
 #define BANK_1_PIN          D6
@@ -41,12 +43,14 @@ char mqttBuffer[512];
 int g_appId;
 bool g_stationOn;
 bool g_lightsOn;
+bool g_lightsOff;
 bool g_timeSetDone;
 
 Houses bank1(BANK_1_PIN, BANK_1_LEDS);
 Houses bank2(BANK_2_PIN, BANK_2_LEDS);
 Houses bank3(BANK_3_PIN, BANK_3_LEDS);
 Station station(BANK_4_PIN, BANK_4_LEDS);
+Block blocks;
 
 SunSet sun;
 SerialLogHandler logHandler;
@@ -193,6 +197,7 @@ void setup()
 {
     g_timeSetDone = true;
     g_lightsOn = false;
+    g_lightsOff = true;
     g_stationOn = false;
     g_appId = APP_ID;
 
@@ -234,6 +239,10 @@ void setup()
     bank3.turnOff();
     station.turnOff();
 
+    blocks.addHouses(&bank1);
+    blocks.addHouses(&bank2);
+    blocks.addHouses(&bank3);
+
     Particle.variable("mpm", calculateMPM);
     Particle.variable("sunset", calcSunset);
     Particle.variable("sunrise", calcSunrise);
@@ -251,9 +260,9 @@ void loop()
     static system_tick_t nextTimeout = 0;
     int mpm = Time.minute() + (Time.hour() * 60);
 
-    /* Update time and date. Note this is done after 2am to handle changes
-     * in timezone. */
-    if (Time.hour() == 3 && !g_timeSetDone) {
+    /* Update time and date. Note this is done at 2am to handle changes
+     * in timezone which generally happens at 2 am */
+    if (Time.hour() == 2 && !g_timeSetDone) {
         Log.info("Setting time");
         Particle.syncTime();
         waitUntil(Particle.syncTimeDone);
@@ -264,63 +273,24 @@ void loop()
     }
     else if (Time.hour() != 3 && g_timeSetDone) {
         g_timeSetDone = false;
-        Log.info("Stopping time set");
+        Log.info("Signaling we will need to do a time set again at 3");
     }
 
     double sunset = sun.calcSunset();
     double sunrise = sun.calcSunrise();
 
     if (mpm >= (sunrise - 15) && g_lightsOn) {
-/*
-        Log.info("After sunrise, turning lights off");
         if (millis() > nextTimeout) {
-            int bank = random(0, 2);
-            int entry = 0;
-            bool foundAndTurnedOff = false;
-            int pixelCount = 15;
-            while (!foundAndTurnedOff && pixelCount > 0) {
-                switch (bank) {
-                    case 0:
-                        entry = random(0, bank1.getNumLeds());
-                        if (bank1.getPixelColor(entry) != 0) {
-                            bank1.setPixelColor(entry, 0, 0, 0);
-                            foundAndTurnedOff = true;
-                            Log.info("Turned off light %d:%d", bank, entry);
-                        }
-                        else {
-                            pixelCount--;
-                        }
-                        break;
-                    case 1:
-                        entry = random(0, bank1.getNumLeds());
-                        if (bank1.getPixelColor(entry) != 0) {
-                            bank1.setPixelColor(entry, 0, 0, 0);
-                            Log.info("Turned off light %d:%d", bank, entry);
-                        }
-                        else {
-                            pixelCount--;
-                        }
-                        break;
-                    case 2:
-                        entry = random(0, bank1.getNumLeds());
-                        if (bank1.getPixelColor(entry) != 0) {
-                            bank1.setPixelColor(entry, 0, 0, 0);
-                            Log.info("Turned off light %d:%d", bank, entry);
-                        }
-                        else {
-                            pixelCount--;
-                        }
-                        break;
-                    default:
-                        Log.error("Shouldn't have gotten here");
-                        break;
-                }
-                nextTimeout = random(ONE_MINUTE, FIVE_MINUTES);
+            nextTimeout = random(ONE_MINUTE, FIVE_MINUTES) + millis();
+            g_lightsOn = blocks.turnOffRandomHouse();
+            if (g_lightsOn) {
+                Log.info("%ld: Turned on random house, will do the next one in %ld millis", millis(), nextTimeout - millis());
             }
-            if (pixelCount == 0)
-                g_lightsOn = false;
+            else {
+                Log.info("It seems all lights are off now");
+                nextTimeout = 0;
+            }
         }
-        */
     }
 
     if ((mpm >= sunrise) && g_stationOn) {
@@ -329,8 +299,25 @@ void loop()
         g_stationOn = false;
     }
 
+    /**
+     * If all lights are not on, iterate through and turn random houses on
+     * Once they are all on, we set g_lightsOn to true by inverting the
+     * return value of turnOnRandomHouse which will always be true if we do
+     * something, but false when done, but we want it to be true when
+     * we are done.
+     */
     if (mpm >= (sunset - 15) && !g_lightsOn) {
-
+        if (millis() > nextTimeout) {
+            nextTimeout = random(ONE_MINUTE, FIVE_MINUTES) + millis();
+            g_lightsOn = !blocks.turnOnRandomHouse();
+            if (!g_lightsOn) {
+                Log.info("%ld: Turned off random house, will do the next one in %ld millis", millis(), nextTimeout - millis());
+            }
+            else {
+                Log.info("It seems all lights are on now");
+                nextTimeout = 0;
+            }
+        }
     }
 
     if ((mpm >= sunset) && !g_stationOn) {

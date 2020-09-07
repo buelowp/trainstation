@@ -12,6 +12,7 @@ Station::Station(int pin, int count)
 
 Station::~Station()
 {
+    Log.info("Station destructor, turning off station");
     m_station->begin();
     m_station->show();
     delete m_station;
@@ -20,7 +21,7 @@ Station::~Station()
 void Station::turnOnStandard()
 {
     m_station->begin();
-
+    Log.info("Turning station lights on, white");
     for (int i = 0; i < 6; i++) {
         m_station->setPixelColor(g_overheadEvening[i], 0, 0, 0, 255);
     }
@@ -30,7 +31,7 @@ void Station::turnOnStandard()
 void Station::turnOnStandardColor(int r, int g, int b, int w)
 {
     m_station->begin();
-
+    Log.info("Turning the station on to color %d:%d:%d:%d", r, g, b, w);
     for (int i = 0; i < 6; i++) {
         m_station->setPixelColor(g_overheadEvening[i], r, g, b, w);
     }
@@ -39,6 +40,7 @@ void Station::turnOnStandardColor(int r, int g, int b, int w)
 
 void Station::turnOn()
 {
+    Log.info("Turning all station lighs on, white");
     m_station->begin();
     for (int i = 0; i < m_leds; i++) {
         m_station->setPixelColor(i, 0, 0, 0, 255);
@@ -50,6 +52,7 @@ void Station::turnOnAllColor(int r, int g, int b, int w)
 {
     m_station->begin();
 
+    Log.info("Turning all station lights on to color %d:%d:%d:%d", r, g, b, w);
     for (int i = 0; i < m_leds; i++) {
         m_station->setPixelColor(i, r, g, b, w);
     }
@@ -59,7 +62,7 @@ void Station::turnOnAllColor(int r, int g, int b, int w)
 void Station::turnOnCircle()
 {
     m_station->begin();
-
+    Log.info("Turning on station circle to white");
     for (int i = 0; i < 12; i++) {
         m_station->setPixelColor(g_circle[i], 0, 0, 0, 255);
     }
@@ -70,6 +73,7 @@ void Station::turnOnCircleColor(int r, int g, int b, int w)
 {
     m_station->begin();
 
+    Log.info("Turning circle station lights on to color %d:%d:%d:%d", r, g, b, w);
     for (int i = 0; i < 12; i++) {
         m_station->setPixelColor(g_circle[i], r, g, b, w);
     }
@@ -78,12 +82,14 @@ void Station::turnOnCircleColor(int r, int g, int b, int w)
 
 void Station::turnOff()
 {
+    Log.info("Turning station lights off");
     m_station->begin();
     m_station->show();
 }
 
 void Station::blinkToLife()
 {
+    Log.info("Blinking to life");
     turnOnStandardColor(0, 0, 0, 150);
     delay(400);
     m_station->clear();

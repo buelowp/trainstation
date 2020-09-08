@@ -5,15 +5,19 @@
 #include "block.h"
 #include "houses.h"
 #include "station.h"
+#include "lamps.h"
+#include "lamp.h"
 
-#define APP_ID              22
+#define APP_ID              36
 
-#define TIME_BASE_YEAR        2020
+#define TIME_BASE_YEAR      2020
 #define CST_OFFSET          -6
 #define DST_OFFSET          (CST_OFFSET + 1)
 #define ONE_SECOND          (1000)
 #define TWO_SECONDS         (ONE_SECOND * 2)
+#define THIRTY_SECONDS      (ONE_SECOND * 30)
 #define ONE_MINUTE          (ONE_SECOND * 60)
+#define THREE_MINUTES       (ONE_MINUTE * 3)
 #define FIVE_MINUTES        (ONE_MINUTE * 5)
 #define ONE_HOUR            (ONE_MINUTE * 60)
 #define TWELVE_HOURS        (ONE_HOUR * 12)
@@ -45,12 +49,23 @@ bool g_stationOn;
 bool g_lightsOn;
 bool g_lightsOff;
 bool g_timeSetDone;
+bool g_streetLightsOn;
 
 Houses bank1(BANK_1_PIN, BANK_1_LEDS);
 Houses bank2(BANK_2_PIN, BANK_2_LEDS);
 Houses bank3(BANK_3_PIN, BANK_3_LEDS);
 Station station(BANK_4_PIN, BANK_4_LEDS);
 Block blocks;
+Lamp lampD0(D0);
+Lamp lampD1(D1);
+Lamp lampD2(D2);
+Lamp lampA0(A0);
+Lamp lampA1(A1);
+Lamp lampA2(A2);
+Lamp lampA3(A3);
+Lamp lampA4(A4);
+Lamp lampA5(A5);
+Lamps lamps;
 
 SunSet sun;
 SerialLogHandler logHandler;
@@ -82,35 +97,7 @@ int currentTimeZone()
 int turnOnSwitch(String num)
 {
     Log.info("Turning on switch %ld", num.toInt());
-    switch (num.toInt()) {
-        case 0:
-            digitalWrite(D0, !digitalRead(D0));
-            break;
-        case 1:
-            digitalWrite(D1, HIGH);
-            break;
-        case 2:
-            digitalWrite(D2, HIGH);
-            break;
-        case 3:
-            digitalWrite(A0, HIGH);
-            break;
-        case 4:
-            digitalWrite(A1, HIGH);
-            break;
-        case 5:
-            digitalWrite(A2, HIGH);
-            break;
-        case 6:
-            digitalWrite(A3, HIGH);
-            break;
-        case 7:
-            digitalWrite(A4, HIGH);
-            break;
-        case 8:
-            digitalWrite(A5, HIGH);
-            break;
-    }
+    lamps.turnOff(num.toInt());
     return num.toInt();
 }
 
@@ -192,6 +179,29 @@ double calcSunset()
     return sun.calcSunset();
 }
 
+bool afterSunset(int offset)
+{
+    int sunset = static_cast<int>(sun.calcSunset());
+    int mpm = Time.minute() + (Time.hour() * 60);
+
+    if (mpm >= (sunset + offset))
+        return true;
+
+    return false;
+}
+
+bool afterSunrise(int offset)
+{
+    int sunrise = static_cast<int>(sun.calcSunrise());
+    int sunset = static_cast<int>(sun.calcSunset());
+    int mpm = Time.minute() + (Time.hour() * 60);
+
+    if (mpm >= (sunrise + offset) && (mpm < sunset))
+        return true;
+
+    return false;
+}
+
 // setup() runs once, when the device is first turned on.
 void setup() 
 {
@@ -199,6 +209,7 @@ void setup()
     g_lightsOn = false;
     g_lightsOff = true;
     g_stationOn = false;
+    g_streetLightsOn = false;
     g_appId = APP_ID;
 
     pinMode(D0, OUTPUT);
@@ -234,14 +245,22 @@ void setup()
         Log.error("Unable to connect to MQTT");
     }
 
-    bank1.turnOff();
-    bank2.turnOff();
-    bank3.turnOff();
-    station.turnOff();
-
     blocks.addHouses(&bank1);
     blocks.addHouses(&bank2);
     blocks.addHouses(&bank3);
+    lamps.addLamp(&lampD0);
+    lamps.addLamp(&lampD1);
+    lamps.addLamp(&lampD2);
+    lamps.addLamp(&lampA0);
+    lamps.addLamp(&lampA1);
+    lamps.addLamp(&lampA2);
+    lamps.addLamp(&lampA3);
+    lamps.addLamp(&lampA4);
+    lamps.addLamp(&lampA5);
+
+    blocks.turnOff();
+    station.turnOff();
+    lamps.turnOff();
 
     Particle.variable("mpm", calculateMPM);
     Particle.variable("sunset", calcSunset);
@@ -251,7 +270,7 @@ void setup()
     Particle.function("turnon", turnOnBank);
     Particle.function("switch", turnOnSwitch);
     Particle.function("turnoff", turnOffBank);
-    Log.info("Setup done");
+    Log.info("Setup: Setup done");
 }
 
 // loop() runs over and over again, as quickly as it can execute.
@@ -263,7 +282,7 @@ void loop()
     /* Update time and date. Note this is done at 2am to handle changes
      * in timezone which generally happens at 2 am */
     if (Time.hour() == 2 && !g_timeSetDone) {
-        Log.info("Setting time");
+        Log.info("loop: Setting time");
         Particle.syncTime();
         waitUntil(Particle.syncTimeDone);
         Time.zone(currentTimeZone());
@@ -273,29 +292,33 @@ void loop()
     }
     else if (Time.hour() != 3 && g_timeSetDone) {
         g_timeSetDone = false;
-        Log.info("Signaling we will need to do a time set again at 3");
+        Log.info("loop: Signaling we will need to do a time set again at 3");
     }
 
     double sunset = sun.calcSunset();
     double sunrise = sun.calcSunrise();
 
-    if (mpm >= (sunrise - 15) && g_lightsOn) {
+    EVERY_N_MILLIS(ONE_MINUTE) {
+        Log.info("loop: Sunset at %f, current mpm %d, lights on %d", sunset, mpm, g_lightsOn);
+    }
+    if (afterSunrise(-10) && g_lightsOn) {
         if (millis() > nextTimeout) {
-            nextTimeout = random(ONE_MINUTE, FIVE_MINUTES) + millis();
+            nextTimeout = random(THIRTY_SECONDS, THREE_MINUTES) + millis();
             g_lightsOn = blocks.turnOffRandomHouse();
             if (g_lightsOn) {
-                Log.info("%ld: Turned on random house, will do the next one in %ld millis", millis(), nextTimeout - millis());
+                Log.info("loop: Turned on random house, will do the next one in %ld millis", nextTimeout - millis());
             }
             else {
-                Log.info("It seems all lights are off now");
+                Log.info("loop: It seems all lights are off now");
                 nextTimeout = 0;
             }
         }
     }
 
-    if ((mpm >= sunrise) && g_stationOn) {
-        Log.info("It's after sunrise (%d:%f), turning the station off", mpm, sunrise);
+    if (afterSunrise(5) && g_stationOn) {
+        Log.info("loop: It's after sunrise (%d:%f), turning the neighborhood lights off", mpm, sunrise);
         station.turnOff();
+        lamps.turnOff();
         g_stationOn = false;
     }
 
@@ -306,23 +329,24 @@ void loop()
      * something, but false when done, but we want it to be true when
      * we are done.
      */
-    if (mpm >= (sunset - 15) && !g_lightsOn) {
+    if (afterSunset(-15) && !g_lightsOn) {
         if (millis() > nextTimeout) {
-            nextTimeout = random(ONE_MINUTE, FIVE_MINUTES) + millis();
+            nextTimeout = random(ONE_SECOND, THIRTY_SECONDS) + millis();
             g_lightsOn = !blocks.turnOnRandomHouse();
             if (!g_lightsOn) {
-                Log.info("%ld: Turned off random house, will do the next one in %ld millis", millis(), nextTimeout - millis());
+                Log.info("loop: Turned on random house, will do the next one in %ld millis", nextTimeout - millis());
             }
             else {
-                Log.info("It seems all lights are on now");
+                Log.info("loop: It seems all lights are on now");
                 nextTimeout = 0;
             }
         }
     }
 
-    if ((mpm >= sunset) && !g_stationOn) {
-        Log.info("It's after sunset (%d:%f), turn on the station", mpm, sunset);
+    if (afterSunset(0) && !g_stationOn) {
+        Log.info("loop: It's after sunset (%d:%f), turn on the station", mpm, sunset);
         station.blinkToLife();
+        lamps.staggerOn();
         g_stationOn = true;
     }
 }

@@ -23,6 +23,7 @@ public:
     bool turnOffNextHouse();
     int numPixels() { return m_leds; }
     int numHouses() { return m_houseCount; }
+    int bank() { return m_bank; }
     bool isOn(int);
 
 private:

@@ -79,7 +79,7 @@ bool Block::turnOffRandomHouse()
         resetTestedValues();
         int bank = random(0, m_banks.size());
         int house = random(0, m_banks[bank]->numHouses());
-        if (hasBeenTested(house, bank)) {
+        if (hasBeenTested(bank, house)) {
             continue;
         }
         else {

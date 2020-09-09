@@ -8,7 +8,7 @@
 #include "lamps.h"
 #include "lamp.h"
 
-#define APP_ID              36
+#define APP_ID              39
 
 #define TIME_BASE_YEAR      2020
 #define CST_OFFSET          -6
@@ -290,7 +290,7 @@ void loop()
         sun.setTZOffset(currentTimeZone());
         g_timeSetDone = true;
     }
-    else if (Time.hour() != 3 && g_timeSetDone) {
+    else if (Time.hour() != 2 && g_timeSetDone) {
         g_timeSetDone = false;
         Log.info("loop: Signaling we will need to do a time set again at 3");
     }
@@ -298,7 +298,7 @@ void loop()
     double sunset = sun.calcSunset();
     double sunrise = sun.calcSunrise();
 
-    EVERY_N_MILLIS(ONE_MINUTE) {
+    EVERY_N_MILLIS(ONE_HOUR) {
         Log.info("loop: Sunset at %f, current mpm %d, lights on %d", sunset, mpm, g_lightsOn);
     }
     if (afterSunrise(-10) && g_lightsOn) {

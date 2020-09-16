@@ -8,13 +8,15 @@
 #include "lamps.h"
 #include "lamp.h"
 
-#define APP_ID              39
+#define APP_ID              79
 
 #define TIME_BASE_YEAR      2020
 #define CST_OFFSET          -6
 #define DST_OFFSET          (CST_OFFSET + 1)
+
 #define ONE_SECOND          (1000)
 #define TWO_SECONDS         (ONE_SECOND * 2)
+#define TEN_SECONDS         (ONE_SECOND * 10)
 #define THIRTY_SECONDS      (ONE_SECOND * 30)
 #define ONE_MINUTE          (ONE_SECOND * 60)
 #define THREE_MINUTES       (ONE_MINUTE * 3)
@@ -24,8 +26,6 @@
 
 #define LATITUDE            41.12345
 #define LONGITUDE           -87.98765
-#define CST_OFFSET          -6
-#define DST_OFFSET          (CST_OFFSET + 1)
 
 #define BANK_1_LEDS         6
 #define BANK_2_LEDS         6
@@ -37,8 +37,11 @@
 #define BANK_3_PIN          D4
 #define BANK_4_PIN          D5
 
+#define MQTT_BUFF_SIZE      512
+
 const uint8_t _usDSTStart[22] = { 8,14,13,12,10, 9, 8,14,12,11,10, 9,14,13,12,11, 9};
 const uint8_t _usDSTEnd[22]   = { 1, 7, 6, 5, 3, 2, 1, 7, 5, 4, 3, 2, 7, 6, 5, 4, 2};
+char g_mqttBuffer[MQTT_BUFF_SIZE];
 String g_name = "trainstation-";
 String g_mqttName = g_name + System.deviceID().substring(0, 8);
 byte mqttServer[] = { 172, 24, 1, 13 };
@@ -54,7 +57,7 @@ bool g_streetLightsOn;
 Houses bank1(BANK_1_PIN, BANK_1_LEDS);
 Houses bank2(BANK_2_PIN, BANK_2_LEDS);
 Houses bank3(BANK_3_PIN, BANK_3_LEDS);
-Station station(BANK_4_PIN, BANK_4_LEDS);
+Station station(BANK_4_PIN, BANK_4_LEDS, &client);
 Block blocks;
 Lamp lampD0(D0);
 Lamp lampD1(D1);
@@ -184,22 +187,272 @@ bool afterSunset(int offset)
     int sunset = static_cast<int>(sun.calcSunset());
     int mpm = Time.minute() + (Time.hour() * 60);
 
-    if (mpm >= (sunset + offset))
+    if (mpm >= (sunset + offset)) {
         return true;
+    }
 
     return false;
 }
 
+/**
+ * You need to account for the fact that after sunset might
+ * be earlier than expected, and we can't know what that value
+ * is, so we just set it to be 60 minutes earlier.
+ */
 bool afterSunrise(int offset)
 {
     int sunrise = static_cast<int>(sun.calcSunrise());
     int sunset = static_cast<int>(sun.calcSunset());
     int mpm = Time.minute() + (Time.hour() * 60);
 
-    if (mpm >= (sunrise + offset) && (mpm < sunset))
+    if (mpm >= (sunrise + offset) && (mpm < (sunset - 60))) {
         return true;
+    }
 
     return false;
+}
+
+void turnOffNeighborhood()
+{
+    int mpm = Time.minute() + (Time.hour() * 60);
+    double sunrise = sun.calcSunrise();
+
+    Log.info("loop: It's after sunrise (%d:%f), turning the neighborhood lights off", mpm, sunrise);
+    station.turnOff();
+    lamps.turnOff();
+    g_stationOn = false;
+    JSONBufferWriter writer(g_mqttBuffer, sizeof(g_mqttBuffer) - 1);
+    writer.beginObject();
+    writer.name("appid").value(g_appId);
+    writer.name("time");
+        writer.beginObject();
+        writer.name("mpm").value(mpm);
+        writer.endObject();
+    writer.name("neighborhood");
+        writer.beginObject();
+        writer.name("result").value("off");
+        writer.endObject();
+    writer.endObject();
+    writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
+    client.publish("village/state", writer.buffer());
+    station.turnOff();
+}
+
+void turnOnNeighborhood()
+{
+    int mpm = Time.minute() + (Time.hour() * 60);
+    double sunset = sun.calcSunset();
+
+    Log.info("loop: It's after sunset (%d:%f), turn on the station", mpm, sunset);
+    station.blinkToLife();
+    lamps.staggerOn();
+    g_stationOn = true;
+    JSONBufferWriter writer(g_mqttBuffer, sizeof(g_mqttBuffer) - 1);
+    writer.beginObject();
+    writer.name("appid").value(g_appId);
+    writer.name("time");
+        writer.beginObject();
+        writer.name("mpm").value(mpm);
+        writer.endObject();
+    writer.name("neighborhood");
+        writer.beginObject();
+        writer.name("result").value("on");
+        writer.endObject();
+    writer.endObject();
+    writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
+    client.publish("village/state", writer.buffer());
+}
+
+system_tick_t turnOffNextHouse(bool fast)
+{   
+    int start = ONE_MINUTE;
+    int end = FIVE_MINUTES;
+    int mpm = Time.minute() + (Time.hour() * 60);
+
+    if (fast) {
+        start = ONE_SECOND;
+        end = TEN_SECONDS;
+    }
+    
+    system_tick_t nextTimeout = random(start, end) + millis();
+    g_lightsOn = blocks.turnOffRandomHouse();
+    if (g_lightsOn) {
+        Log.info("%s: Turned off random house, will do the next one in %ld millis", __FUNCTION__, nextTimeout - millis());
+        JSONBufferWriter writer(g_mqttBuffer, sizeof(g_mqttBuffer) - 1);
+        writer.beginObject();
+        writer.name("appid").value(g_appId);
+        writer.name("time");
+            writer.beginObject();
+            writer.name("mpm").value(mpm);
+            writer.endObject();
+        writer.name("house");
+            writer.beginObject();
+            writer.name("action").value("off");
+            writer.name("house").value(blocks.getLastRandomHouse());
+            writer.name("block").value(blocks.getLastRandomBlock());
+            writer.name("g_lightsOn").value(g_lightsOn);
+            writer.endObject();
+        writer.endObject();
+        writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
+        client.publish("village/state", writer.buffer());
+    }
+    else {
+        Log.info("%s: It seems all lights are off now", __FUNCTION__);
+        JSONBufferWriter writer(g_mqttBuffer, sizeof(g_mqttBuffer) - 1);
+        writer.beginObject();
+        writer.name("appid").value(g_appId);
+        writer.name("time");
+            writer.beginObject();
+            writer.name("mpm").value(mpm);
+            writer.endObject();
+        writer.name("house");
+            writer.beginObject();
+            writer.name("action").value("complete");
+            writer.name("g_lightsOn").value(g_lightsOn);
+            writer.endObject();
+        writer.endObject();
+        writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
+        client.publish("village/state", writer.buffer());
+        nextTimeout = 0;
+    }
+    return nextTimeout;
+}
+
+system_tick_t turnOnNextHouse(bool fast)
+{
+    int mpm = Time.minute() + (Time.hour() * 60);
+    int start = ONE_MINUTE;
+    int end = FIVE_MINUTES;
+
+    if (fast) {
+        start = ONE_SECOND;
+        end = TEN_SECONDS;
+    }
+    
+    system_tick_t nextTimeout = random(start, end) + millis();
+    g_lightsOn = !blocks.turnOnRandomHouse();
+    if (!g_lightsOn) {
+        Log.info("%s: Turned on random house, will do the next one in %ld millis", __FUNCTION__, nextTimeout - millis());
+        JSONBufferWriter writer(g_mqttBuffer, sizeof(g_mqttBuffer) - 1);
+        writer.beginObject();
+        writer.name("appid").value(g_appId);
+        writer.name("time");
+            writer.beginObject();
+            writer.name("mpm").value(mpm);
+            writer.endObject();
+        writer.name("house");
+            writer.beginObject();
+            writer.name("action").value("on");
+            writer.name("house").value(blocks.getLastRandomHouse());
+            writer.name("block").value(blocks.getLastRandomBlock());
+            writer.name("g_lightsOn").value(g_lightsOn);
+            writer.endObject();
+        writer.endObject();
+        writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
+        client.publish("village/state", writer.buffer());
+    }
+    else {
+        Log.info("%s: It seems all lights are on now", __FUNCTION__);
+        JSONBufferWriter writer(g_mqttBuffer, sizeof(g_mqttBuffer) - 1);
+        writer.beginObject();
+        writer.name("appid").value(g_appId);
+        writer.name("time");
+            writer.beginObject();
+            writer.name("mpm").value(mpm);
+            writer.endObject();
+        writer.name("house");
+            writer.beginObject();
+            writer.name("action").value("complete");
+            writer.name("g_lightsOn").value(g_lightsOn);
+            writer.endObject();
+        writer.endObject();
+        writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
+        client.publish("village/state", writer.buffer());
+        nextTimeout = 0;
+    }
+    return nextTimeout;
+}
+
+void sendMQTTHeartBeat()
+{
+    int mpm = Time.minute() + (Time.hour() * 60);
+    double sunset = sun.calcSunset();
+    double sunrise = sun.calcSunrise();
+
+    Log.info("%s: Sunset at %f, current mpm %d, lights on %d", __FUNCTION__, sunset, mpm, g_lightsOn);
+    JSONBufferWriter writer(g_mqttBuffer, sizeof(g_mqttBuffer) - 1);
+    writer.beginObject();
+    writer.name("appid").value(g_appId);
+    writer.name("village");
+        writer.beginObject();
+        writer.name("houses").value(g_lightsOn);
+        writer.name("station").value(g_stationOn);
+        writer.endObject();
+    writer.name("time");
+        writer.beginObject();
+        writer.name("mpm").value(mpm);
+        writer.name("sunrise").value(sunrise);
+        writer.name("sunset").value(sunset);
+        writer.endObject();
+    writer.endObject();
+    writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
+    client.publish("village/heartbeat", writer.buffer());
+}
+
+void setDeviceTime()
+{
+    Log.info("%s: Setting time", __FUNCTION__);
+    Particle.syncTime();
+    waitUntil(Particle.syncTimeDone);
+    g_timeSetDone = true;
+    Time.zone(currentTimeZone());
+    sun.setCurrentDate(Time.year(), Time.month(), Time.day());
+    sun.setTZOffset(currentTimeZone());
+    JSONBufferWriter writer(g_mqttBuffer, sizeof(g_mqttBuffer) - 1);
+    writer.beginObject();
+    writer.name("appid").value(g_appId);
+    writer.name("time").value("set");
+    writer.name("epoch").value(static_cast<unsigned int>(Time.now()));
+    writer.name("flag").value(g_timeSetDone);
+    writer.endObject();
+    writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
+    client.publish("village/timesync", writer.buffer());
+}
+
+int setHouseColor(String colors)
+{
+    uint8_t r = 255;
+    uint8_t g = 255;
+    uint8_t b = 255;
+    int index = 0;
+    int prev = 0;
+    int which = 0;
+
+    while (true) {
+        index = colors.indexOf(',', prev);
+        if (index == -1 && which != 2) {
+            break;
+        }
+        switch (which) {
+            case 0:
+                r = colors.substring(prev, index).toInt();
+                prev = index;
+                which = 1;
+                break;
+            case 1:
+                g = colors.substring(prev + 1, index).toInt();
+                prev = index;
+                which = 2;
+                break;
+            case 2:
+                b = colors.substring(prev + 1).toInt();
+                blocks.setHouseColors(r, g, b);
+                return 3;
+            default:
+                continue;
+        }
+    }
+    return 0;
 }
 
 // setup() runs once, when the device is first turned on.
@@ -238,11 +491,10 @@ void setup()
 
     client.connect(g_mqttName.c_str());
     if (client.isConnected())
-        Log.info("MQTT client connected as %s", g_mqttName.c_str());
+        Log.info("%s: MQTT client connected as %s", __FUNCTION__, g_mqttName.c_str());
     else
     {
-        /* If we can't connect, go to sleep and try again! */
-        Log.error("Unable to connect to MQTT");
+        Log.error("%s: Unable to connect to MQTT", __FUNCTION__);
     }
 
     blocks.addHouses(&bank1);
@@ -270,83 +522,77 @@ void setup()
     Particle.function("turnon", turnOnBank);
     Particle.function("switch", turnOnSwitch);
     Particle.function("turnoff", turnOffBank);
-    Log.info("Setup: Setup done");
+    Particle.function("housecolor", setHouseColor);
+
+    JSONBufferWriter writer(g_mqttBuffer, sizeof(g_mqttBuffer) - 1);
+    writer.beginObject();
+    writer.name("village");
+    writer.beginObject();
+    writer.name("action").value("startup");
+    writer.name("appid").value(g_appId);
+    writer.name("houses").value(g_lightsOn);
+    writer.name("station").value(g_stationOn);
+    writer.endObject();
+    writer.endObject();
+    writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
+    client.publish("village/startup", writer.buffer());
+    station.turnOff();  // Do this twice, it doesn't seem to take the first time
+    int sunrise = static_cast<int>(sun.calcSunrise());
+    int sunset = static_cast<int>(sun.calcSunset());
+    int mpm = Time.minute() + (Time.hour() * 60);
+    Log.info("%s: Setup done for app version %d, mpm=%d, sunrise=%d, sunset=%d", __FUNCTION__, g_appId, mpm, sunrise, sunset);
 }
 
-// loop() runs over and over again, as quickly as it can execute.
 void loop() 
 {
     static system_tick_t nextTimeout = 0;
+    static int lastHour = 24;
+    int currentHour = Time.hour();
     int mpm = Time.minute() + (Time.hour() * 60);
+
+    EVERY_N_MILLIS(ONE_SECOND) {
+        if (client.isConnected())
+            client.loop();
+        else 
+            client.connect(g_mqttName.c_str());
+    }
 
     /* Update time and date. Note this is done at 2am to handle changes
      * in timezone which generally happens at 2 am */
-    if (Time.hour() == 2 && !g_timeSetDone) {
-        Log.info("loop: Setting time");
-        Particle.syncTime();
-        waitUntil(Particle.syncTimeDone);
-        Time.zone(currentTimeZone());
-        sun.setCurrentDate(Time.year(), Time.month(), Time.day());
-        sun.setTZOffset(currentTimeZone());
-        g_timeSetDone = true;
+    if ((lastHour != currentHour) && currentHour == 2) {
+        setDeviceTime();
     }
-    else if (Time.hour() != 2 && g_timeSetDone) {
-        g_timeSetDone = false;
-        Log.info("loop: Signaling we will need to do a time set again at 3");
-    }
-
-    double sunset = sun.calcSunset();
-    double sunrise = sun.calcSunrise();
+    lastHour = currentHour;
 
     EVERY_N_MILLIS(ONE_HOUR) {
-        Log.info("loop: Sunset at %f, current mpm %d, lights on %d", sunset, mpm, g_lightsOn);
+        sendMQTTHeartBeat();
     }
-    if (afterSunrise(-10) && g_lightsOn) {
+
+    if ((mpm >= 1320) && g_lightsOn) {
         if (millis() > nextTimeout) {
-            nextTimeout = random(THIRTY_SECONDS, THREE_MINUTES) + millis();
-            g_lightsOn = blocks.turnOffRandomHouse();
-            if (g_lightsOn) {
-                Log.info("loop: Turned on random house, will do the next one in %ld millis", nextTimeout - millis());
-            }
-            else {
-                Log.info("loop: It seems all lights are off now");
-                nextTimeout = 0;
-            }
+            nextTimeout = turnOffNextHouse(true);
         }
     }
-
-    if (afterSunrise(5) && g_stationOn) {
-        Log.info("loop: It's after sunrise (%d:%f), turning the neighborhood lights off", mpm, sunrise);
-        station.turnOff();
-        lamps.turnOff();
-        g_stationOn = false;
-    }
-
-    /**
-     * If all lights are not on, iterate through and turn random houses on
-     * Once they are all on, we set g_lightsOn to true by inverting the
-     * return value of turnOnRandomHouse which will always be true if we do
-     * something, but false when done, but we want it to be true when
-     * we are done.
-     */
-    if (afterSunset(-15) && !g_lightsOn) {
+    else if ((mpm < 1320) && afterSunset(-10) && !g_lightsOn) {
         if (millis() > nextTimeout) {
-            nextTimeout = random(ONE_SECOND, THIRTY_SECONDS) + millis();
-            g_lightsOn = !blocks.turnOnRandomHouse();
-            if (!g_lightsOn) {
-                Log.info("loop: Turned on random house, will do the next one in %ld millis", nextTimeout - millis());
-            }
-            else {
-                Log.info("loop: It seems all lights are on now");
-                nextTimeout = 0;
-            }
+            nextTimeout = turnOnNextHouse(true);
+        }
+    }
+    else if (afterSunrise(-10) && !afterSunset(-355) && g_lightsOn) {
+        if (millis() > nextTimeout) {
+            nextTimeout = turnOffNextHouse(true);
+        }
+    }
+    else if ((mpm >= 270) && !afterSunrise(-10) && !g_lightsOn) {
+        if (millis() > nextTimeout) {
+            nextTimeout = turnOnNextHouse(false);
         }
     }
 
     if (afterSunset(0) && !g_stationOn) {
-        Log.info("loop: It's after sunset (%d:%f), turn on the station", mpm, sunset);
-        station.blinkToLife();
-        lamps.staggerOn();
-        g_stationOn = true;
+        turnOnNeighborhood();
+    }
+    if (afterSunrise(5) && g_stationOn) {
+        turnOffNeighborhood();
     }
 }

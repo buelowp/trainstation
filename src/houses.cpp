@@ -51,7 +51,7 @@ void Houses::turnOn()
 {
     Log.info("Houses: Turning all houses on for bank %d", m_bank);
     for (int i = 0; i < m_leds; i++) {
-        m_houses[i] = CRGB::BlanchedAlmond;
+        m_houses[i] = CRGB(255, 220, 50);
     }
     FastLED.show();
 }
@@ -61,8 +61,8 @@ bool Houses::turnOn(int house)
     int led = house * 2;
     if (house < m_houseCount) {
         Log.info("Houses: Turning house %d on in bank %d", house, m_bank);
-        m_houses[led] = CRGB::BlanchedAlmond;
-        m_houses[led + 1] = CRGB::BlanchedAlmond;
+        m_houses[led] = CRGB(255, 225, 60);
+        m_houses[led + 1] = CRGB(255, 225, 60);
         FastLED.show();
         return true;
     }
@@ -104,4 +104,13 @@ bool Houses::isOn(int house)
     }
     Log.error("Houses: House %d is not valid", house);
     return false;
+}
+
+void Houses::setColors(uint8_t r, uint8_t g, uint8_t b)
+{
+    Log.info("Houses: Setting block colors to %d:%d:%d", r, g, b);
+    for (int i = 0; i < m_leds; i++) {
+        m_houses[i] = CRGB(r, g, b);
+    }
+    FastLED.show();
 }

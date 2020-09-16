@@ -3,11 +3,13 @@
 static int g_circle[] = { 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13 };
 static int g_overheadEvening[] = { 0, 1, 4, 7, 8, 11 };
 
-Station::Station(int pin, int count)
+extern char *g_mqttBuffer;
+extern int g_appId;
+
+Station::Station(int pin, int count, MQTT *client) : m_leds(count), m_pin(pin), m_mqtt(client)
 {
     m_station = new Adafruit_NeoPixel(count, pin, SK6812RGBW);
-    m_leds = count;
-    Log.info("Created a new station on pin %d", pin);
+    Log.info("Created a new station on pin %d with %d leds", pin, m_leds);
 }
 
 Station::~Station()
@@ -26,6 +28,17 @@ void Station::turnOnStandard()
         m_station->setPixelColor(g_overheadEvening[i], 0, 0, 0, 255);
     }
     m_station->show();
+    JSONBufferWriter writer(g_mqttBuffer, sizeof(g_mqttBuffer) - 1);
+    writer.beginObject();
+    writer.name("village");
+    writer.beginObject();
+    writer.name("action").value("turnonstandard");
+    writer.name("appid").value(g_appId);
+    writer.name("object").value("station");
+    writer.endObject();
+    writer.endObject();
+    writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
+    m_mqtt->publish("village/station", writer.buffer());
 }
 
 void Station::turnOnStandardColor(int r, int g, int b, int w)
@@ -82,24 +95,25 @@ void Station::turnOnCircleColor(int r, int g, int b, int w)
 
 void Station::turnOff()
 {
-    Log.info("Station: Turning station lights off");
     m_station->begin();
     m_station->show();
+    Log.info("%s: turning off station lights", __PRETTY_FUNCTION__);
 }
 
 void Station::blinkToLife()
 {
-    Log.info("Station: Blinking to life");
+    Log.info("%s: blinktolife", __PRETTY_FUNCTION__);
+
     turnOnStandardColor(0, 0, 0, 150);
     delay(400);
     m_station->clear();
     m_station->show();
-    delay(500);
+    delay(200);
     turnOnStandardColor(0, 0, 0, 200);
     delay(200);
     m_station->clear();
     m_station->show();
-    delay(300);
+    delay(150);
     turnOnStandardColor(100, 0, 0, 150);
     delay(150);    
     m_station->clear();
@@ -109,14 +123,14 @@ void Station::blinkToLife()
     delay(100);
     m_station->clear();
     m_station->show();
-    delay(900);
+    delay(250);
     turnOnStandardColor(0, 100, 0, 150);
     delay(400);
     m_station->clear();
     m_station->show();
     delay(100);
     turnOnStandardColor(0, 0, 100, 100);
-    delay(200);
+    delay(150);
     m_station->clear();
     m_station->show();
     delay(100);

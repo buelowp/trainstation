@@ -1,6 +1,6 @@
 #include "block.h"
 
-Block::Block() : m_totalHouses(0)
+Block::Block() : m_totalHouses(0), m_lastRandomHouse(-1), m_lastRandomBlock(-1)
 {
     size_t n = sizeof(m_testedValues) / sizeof(m_testedValues[0]);
     Log.info("Block: m_testedValues size is %d", n);
@@ -22,15 +22,15 @@ void Block::turnOff()
 void Block::resetTestedValues()
 {
     size_t n = sizeof(m_testedValues) / sizeof(m_testedValues[0]);
-    memset(&m_testedValues, 0, n);
+    memset(&m_testedValues, false, n);
 }
 
 bool Block::hasBeenTested(int bank, int house)
 {
     int index = ((bank * 6) + house);
     Log.info("Block: Testing for %d:%d which is index %d", bank, house, index);
-    if (m_testedValues[index] == 0) {
-        m_testedValues[index] = 1;
+    if (m_testedValues[index] == false) {
+        m_testedValues[index] = true;
         return false;
     }
     return true;
@@ -50,21 +50,17 @@ bool Block::turnOnRandomHouse()
         if (hasBeenTested(bank, house)) {
             continue;
         }
-        else {
-            count--;
-        }
         if (!m_banks[bank]->isOn(house)) {
+            m_lastRandomBlock = bank;
+            m_lastRandomHouse = house;
             Log.info("Block: Turning on house %d:%d", bank, house);
             m_banks[bank]->turnOn(house);
             found = true;
         }
         else {
+            count--;
             Log.info("Block: House %d:%d is already on, remaining=%d", bank, house, count);
         }
-    }
-
-    if (count == 0) {
-        resetTestedValues();
     }
     Log.info("Block: Returning %d as we attempted to turn on a random house", found);
     return found;
@@ -82,20 +78,17 @@ bool Block::turnOffRandomHouse()
         if (hasBeenTested(bank, house)) {
             continue;
         }
-        else {
-            count--;
-        }
         if (m_banks[bank]->isOn(house)) {
+            m_lastRandomBlock = bank;
+            m_lastRandomHouse = house;
             Log.info("Block: Turning off house %d:%d", bank, house);
             m_banks[bank]->turnOff(house);
             found = true;
         }
         else {
+            count--;
             Log.info("Block: House %d:%d is already off, remaining=%d", bank, house, count);
         }
-    }
-    if (count == 0) {
-        resetTestedValues();
     }
     Log.info("Block: Returning %d as we attempted to turn off a random house", found);
     return found;
@@ -152,4 +145,12 @@ void Block::turnOffBlock(int bank)
     Log.info("Block: Turning off entire block");
     if (t < m_banks.size())
         m_banks[bank]->turnOff();
+}
+
+void Block::setHouseColors(uint8_t r, uint8_t g, uint8_t b)
+{
+    Log.info("Block: Setting block colors to %d:%d:%d", r, g, b);
+    for (auto it : m_banks) {
+        it->setColors(r, g, b);
+    }
 }

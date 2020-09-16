@@ -20,6 +20,9 @@ public:
     void turnOff();
     bool stateOfHouseByIndex(int, int);
     int totalHousesControlled() { return m_totalHouses; }
+    int getLastRandomBlock() { return m_lastRandomBlock; }
+    int getLastRandomHouse() { return m_lastRandomHouse; }
+    void setHouseColors(uint8_t r, uint8_t g, uint8_t b);
 
 private:
     bool hasBeenTested(int, int);
@@ -27,6 +30,8 @@ private:
 
     std::vector<Houses*> m_banks;
     int m_totalHouses;
-    int m_testedValues[18];
+    bool m_testedValues[18];
+    int m_lastRandomHouse;
+    int m_lastRandomBlock;
 };
 #endif

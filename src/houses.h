@@ -25,6 +25,7 @@ public:
     int numHouses() { return m_houseCount; }
     int bank() { return m_bank; }
     bool isOn(int);
+    void setColors(uint8_t r, uint8_t g, uint8_t b);
 
 private:
     CRGB m_houses[MAX_HOUSES];

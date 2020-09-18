@@ -43,8 +43,8 @@ bool Block::turnOnRandomHouse()
     bool found = false;
     int count = m_totalHouses;
 
+    resetTestedValues();
     while (!found && (count > 0)) {
-        resetTestedValues();
         int bank = random(0, m_banks.size());
         int house = random(0, m_banks[bank]->numHouses());
         if (hasBeenTested(bank, house)) {
@@ -71,8 +71,8 @@ bool Block::turnOffRandomHouse()
     bool found = false;
     int count = m_totalHouses;
 
+    resetTestedValues();
     while (!found && (count > 0)) {
-        resetTestedValues();
         int bank = random(0, m_banks.size());
         int house = random(0, m_banks[bank]->numHouses());
         if (hasBeenTested(bank, house)) {

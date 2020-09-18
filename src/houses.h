@@ -5,7 +5,7 @@
 
 FASTLED_USING_NAMESPACE
 
-#define MAX_HOUSES          12      // this must be even, each house has 2 leds
+#define MAX_HOUSES          10      // this must be even, each house has 2 leds
 #define BANK_1_PIN          D6
 #define BANK_2_PIN          D3
 #define BANK_3_PIN          D4
@@ -28,7 +28,7 @@ public:
     void setColors(uint8_t r, uint8_t g, uint8_t b);
 
 private:
-    CRGB m_houses[MAX_HOUSES];
+    CRGB m_houses[MAX_HOUSES * 2];
     int m_leds;
     int m_houseCount;
     int m_bank;

@@ -8,7 +8,7 @@
 #include "lamps.h"
 #include "lamp.h"
 
-#define APP_ID              79
+#define APP_ID              93
 
 #define TIME_BASE_YEAR      2020
 #define CST_OFFSET          -6
@@ -27,9 +27,9 @@
 #define LATITUDE            41.12345
 #define LONGITUDE           -87.98765
 
-#define BANK_1_LEDS         6
-#define BANK_2_LEDS         6
-#define BANK_3_LEDS         6
+#define BANK_1_LEDS         12
+#define BANK_2_LEDS         12
+#define BANK_3_LEDS         12
 #define BANK_4_LEDS         14
 
 #define BANK_1_PIN          D6
@@ -50,14 +50,11 @@ char mqttBuffer[512];
 int g_appId;
 bool g_stationOn;
 bool g_lightsOn;
-bool g_lightsOff;
-bool g_timeSetDone;
-bool g_streetLightsOn;
 
 Houses bank1(BANK_1_PIN, BANK_1_LEDS);
 Houses bank2(BANK_2_PIN, BANK_2_LEDS);
 Houses bank3(BANK_3_PIN, BANK_3_LEDS);
-Station station(BANK_4_PIN, BANK_4_LEDS, &client);
+Station station(BANK_4_PIN, BANK_4_LEDS);
 Block blocks;
 Lamp lampD0(D0);
 Lamp lampD1(D1);
@@ -146,7 +143,7 @@ int turnOnBank(String num)
             bank3.turnOn();
             break;
         case 3:
-            turnOnStationLights();
+            station.turnOn();
             break;
         default:
             return -1;
@@ -217,7 +214,7 @@ void turnOffNeighborhood()
     int mpm = Time.minute() + (Time.hour() * 60);
     double sunrise = sun.calcSunrise();
 
-    Log.info("loop: It's after sunrise (%d:%f), turning the neighborhood lights off", mpm, sunrise);
+    Log.info("%s: It's after sunrise (%d:%f), turning the neighborhood lights off", __PRETTY_FUNCTION__, mpm, sunrise);
     station.turnOff();
     lamps.turnOff();
     g_stationOn = false;
@@ -243,7 +240,7 @@ void turnOnNeighborhood()
     int mpm = Time.minute() + (Time.hour() * 60);
     double sunset = sun.calcSunset();
 
-    Log.info("loop: It's after sunset (%d:%f), turn on the station", mpm, sunset);
+    Log.info("%s: It's after sunset (%d:%f), turn on the station", __PRETTY_FUNCTION__, mpm, sunset);
     station.blinkToLife();
     lamps.staggerOn();
     g_stationOn = true;
@@ -277,7 +274,7 @@ system_tick_t turnOffNextHouse(bool fast)
     system_tick_t nextTimeout = random(start, end) + millis();
     g_lightsOn = blocks.turnOffRandomHouse();
     if (g_lightsOn) {
-        Log.info("%s: Turned off random house, will do the next one in %ld millis", __FUNCTION__, nextTimeout - millis());
+        Log.info("%s: Turned off random house, will do the next one in %ld millis", __PRETTY_FUNCTION__, nextTimeout - millis());
         JSONBufferWriter writer(g_mqttBuffer, sizeof(g_mqttBuffer) - 1);
         writer.beginObject();
         writer.name("appid").value(g_appId);
@@ -297,7 +294,7 @@ system_tick_t turnOffNextHouse(bool fast)
         client.publish("village/state", writer.buffer());
     }
     else {
-        Log.info("%s: It seems all lights are off now", __FUNCTION__);
+        Log.info("%s: It seems all lights are off now", __PRETTY_FUNCTION__);
         JSONBufferWriter writer(g_mqttBuffer, sizeof(g_mqttBuffer) - 1);
         writer.beginObject();
         writer.name("appid").value(g_appId);
@@ -332,7 +329,7 @@ system_tick_t turnOnNextHouse(bool fast)
     system_tick_t nextTimeout = random(start, end) + millis();
     g_lightsOn = !blocks.turnOnRandomHouse();
     if (!g_lightsOn) {
-        Log.info("%s: Turned on random house, will do the next one in %ld millis", __FUNCTION__, nextTimeout - millis());
+        Log.info("%s: Turned on random house, will do the next one in %ld millis", __PRETTY_FUNCTION__, nextTimeout - millis());
         JSONBufferWriter writer(g_mqttBuffer, sizeof(g_mqttBuffer) - 1);
         writer.beginObject();
         writer.name("appid").value(g_appId);
@@ -352,7 +349,7 @@ system_tick_t turnOnNextHouse(bool fast)
         client.publish("village/state", writer.buffer());
     }
     else {
-        Log.info("%s: It seems all lights are on now", __FUNCTION__);
+        Log.info("%s: It seems all lights are on now", __PRETTY_FUNCTION__);
         JSONBufferWriter writer(g_mqttBuffer, sizeof(g_mqttBuffer) - 1);
         writer.beginObject();
         writer.name("appid").value(g_appId);
@@ -379,7 +376,7 @@ void sendMQTTHeartBeat()
     double sunset = sun.calcSunset();
     double sunrise = sun.calcSunrise();
 
-    Log.info("%s: Sunset at %f, current mpm %d, lights on %d", __FUNCTION__, sunset, mpm, g_lightsOn);
+    Log.info("%s: Sunset at %f, current mpm %d, lights on %d", __PRETTY_FUNCTION__, sunset, mpm, g_lightsOn);
     JSONBufferWriter writer(g_mqttBuffer, sizeof(g_mqttBuffer) - 1);
     writer.beginObject();
     writer.name("appid").value(g_appId);
@@ -401,10 +398,9 @@ void sendMQTTHeartBeat()
 
 void setDeviceTime()
 {
-    Log.info("%s: Setting time", __FUNCTION__);
+    Log.info("%s: Setting time", __PRETTY_FUNCTION__);
     Particle.syncTime();
     waitUntil(Particle.syncTimeDone);
-    g_timeSetDone = true;
     Time.zone(currentTimeZone());
     sun.setCurrentDate(Time.year(), Time.month(), Time.day());
     sun.setTZOffset(currentTimeZone());
@@ -413,7 +409,6 @@ void setDeviceTime()
     writer.name("appid").value(g_appId);
     writer.name("time").value("set");
     writer.name("epoch").value(static_cast<unsigned int>(Time.now()));
-    writer.name("flag").value(g_timeSetDone);
     writer.endObject();
     writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
     client.publish("village/timesync", writer.buffer());
@@ -458,11 +453,8 @@ int setHouseColor(String colors)
 // setup() runs once, when the device is first turned on.
 void setup() 
 {
-    g_timeSetDone = true;
     g_lightsOn = false;
-    g_lightsOff = true;
     g_stationOn = false;
-    g_streetLightsOn = false;
     g_appId = APP_ID;
 
     pinMode(D0, OUTPUT);
@@ -491,10 +483,10 @@ void setup()
 
     client.connect(g_mqttName.c_str());
     if (client.isConnected())
-        Log.info("%s: MQTT client connected as %s", __FUNCTION__, g_mqttName.c_str());
+        Log.info("%s: MQTT client connected as %s", __PRETTY_FUNCTION__, g_mqttName.c_str());
     else
     {
-        Log.error("%s: Unable to connect to MQTT", __FUNCTION__);
+        Log.error("%s: Unable to connect to MQTT", __PRETTY_FUNCTION__);
     }
 
     blocks.addHouses(&bank1);
@@ -540,7 +532,7 @@ void setup()
     int sunrise = static_cast<int>(sun.calcSunrise());
     int sunset = static_cast<int>(sun.calcSunset());
     int mpm = Time.minute() + (Time.hour() * 60);
-    Log.info("%s: Setup done for app version %d, mpm=%d, sunrise=%d, sunset=%d", __FUNCTION__, g_appId, mpm, sunrise, sunset);
+    Log.info("%s: Setup done for app version %d, mpm=%d, sunrise=%d, sunset=%d", __PRETTY_FUNCTION__, g_appId, mpm, sunrise, sunset);
 }
 
 void loop() 

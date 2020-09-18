@@ -2,12 +2,8 @@
 
 Houses::Houses(int pin, int count)
 {
-    m_leds = count * 2;
-    m_houseCount = count;
-    if (m_leds > MAX_HOUSES) {
-        m_leds = MAX_HOUSES;
-        m_houseCount = MAX_HOUSES / 2;
-    }
+    m_leds = count;
+    m_houseCount = count / 2;
 
     /*
      * This is tricky. The addLeds fails passing an int or const in variable
@@ -19,31 +15,27 @@ Houses::Houses(int pin, int count)
         case BANK_1_PIN:
             FastLED.addLeds<WS2812, D6, EOrder::RGB>(m_houses, m_leds);
             m_bank = 0;
-            Log.info("Houses: Created a bank of houses on pin D6");
+            Log.info("Houses: Created bank %d with %d houses on pin D6", m_bank, m_houseCount);
             break;
         case BANK_2_PIN:
             FastLED.addLeds<WS2812, D3, EOrder::RGB>(m_houses, m_leds);
             m_bank = 1;
-            Log.info("Houses: Created a bank of houses on pin D6");
+            Log.info("Houses: Created bank %d with %d houses on pin D3", m_bank, m_houseCount);
             break;
         case BANK_3_PIN:
             FastLED.addLeds<WS2812, D4, EOrder::RGB>(m_houses, m_leds);
             m_bank = 2;
-            Log.info("Houses: Created a bank of houses on pin D6");
+            Log.info("Houses: Created bank %d with %d houses on pin D4", m_bank, m_houseCount);
             break;
         default:
             Log.error("Houses: Invalid pin %d specified", pin);
     }
-    
-    Log.info("Houses: Created %d new houses for bank %d", count, m_bank);
 }
 
 Houses::~Houses()
 {
     Log.info("Houses: Destructor, turning all houses off");
-    for (int i = 0; i < m_leds; i++) {
-        m_houses[i] = CRGB::Black;
-    }
+    FastLED.clear();
     FastLED.show();
 }
 
@@ -51,7 +43,7 @@ void Houses::turnOn()
 {
     Log.info("Houses: Turning all houses on for bank %d", m_bank);
     for (int i = 0; i < m_leds; i++) {
-        m_houses[i] = CRGB(255, 220, 50);
+        m_houses[i] = CRGB(255, 165, 20);
     }
     FastLED.show();
 }
@@ -61,8 +53,8 @@ bool Houses::turnOn(int house)
     int led = house * 2;
     if (house < m_houseCount) {
         Log.info("Houses: Turning house %d on in bank %d", house, m_bank);
-        m_houses[led] = CRGB(255, 225, 60);
-        m_houses[led + 1] = CRGB(255, 225, 60);
+        m_houses[led] = CRGB(255, 165, 20);
+        m_houses[led + 1] = CRGB(255, 165, 20);
         FastLED.show();
         return true;
     }
@@ -74,9 +66,7 @@ void Houses::turnOff()
 {
     Log.info("Houses: Turning all houses off for bank %d", m_bank);
 
-    for (int i = 0; i < m_leds; i++) {
-        m_houses[i] = CRGB::Black;
-    }
+    FastLED.clear();
     FastLED.show();
 }
 
@@ -98,7 +88,7 @@ bool Houses::isOn(int house)
 {
     int led = house * 2;
     if (house < m_houseCount) {
-        bool result = m_houses[led];
+        bool result = m_houses[led] && m_houses[led + 1];
         Log.info("Houses: House %d is %d", house, result);
         return result;
     }

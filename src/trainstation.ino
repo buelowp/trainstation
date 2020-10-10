@@ -8,7 +8,7 @@
 #include "lamps.h"
 #include "lamp.h"
 
-#define APP_ID              93
+#define APP_ID              94
 
 #define TIME_BASE_YEAR      2020
 #define CST_OFFSET          -6

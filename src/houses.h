@@ -28,6 +28,7 @@ public:
     void setColors(uint8_t r, uint8_t g, uint8_t b);
 
 private:
+    CRGB m_warmWhite;
     CRGB m_houses[MAX_HOUSES * 2];
     int m_leds;
     int m_houseCount;

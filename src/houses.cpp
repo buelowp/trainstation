@@ -30,6 +30,8 @@ Houses::Houses(int pin, int count)
         default:
             Log.error("Houses: Invalid pin %d specified", pin);
     }
+
+    m_warmWhite = CRGB(255, 150, 40);
 }
 
 Houses::~Houses()
@@ -43,7 +45,7 @@ void Houses::turnOn()
 {
     Log.info("Houses: Turning all houses on for bank %d", m_bank);
     for (int i = 0; i < m_leds; i++) {
-        m_houses[i] = CRGB(255, 165, 20);
+        m_houses[i] = m_warmWhite;
     }
     FastLED.show();
 }
@@ -53,8 +55,8 @@ bool Houses::turnOn(int house)
     int led = house * 2;
     if (house < m_houseCount) {
         Log.info("Houses: Turning house %d on in bank %d", house, m_bank);
-        m_houses[led] = CRGB(255, 165, 20);
-        m_houses[led + 1] = CRGB(255, 165, 20);
+        m_houses[led] = m_warmWhite;
+        m_houses[led + 1] = m_warmWhite;
         FastLED.show();
         return true;
     }

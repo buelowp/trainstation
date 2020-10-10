@@ -15,8 +15,9 @@ void Block::addHouses(Houses *bank)
 
 void Block::turnOff()
 {
-    FastLED.clear();
-    FastLED.show();
+    for (auto it : m_banks) {
+        it->turnOff();
+    }
 }
 
 void Block::resetTestedValues()

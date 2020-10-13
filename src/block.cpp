@@ -148,10 +148,14 @@ void Block::turnOffBlock(int bank)
         m_banks[bank]->turnOff();
 }
 
-void Block::setHouseColors(uint8_t r, uint8_t g, uint8_t b)
+void Block::setHouseColors(uint8_t r, uint8_t g, uint8_t b, uint8_t w)
 {
     Log.info("Block: Setting block colors to %d:%d:%d", r, g, b);
     for (auto it : m_banks) {
-        it->setColors(r, g, b);
+        if (it->isRGBWCapable())
+            it->setColors(r, g, b, w);
+        else
+            it->setColors(r, g, b, 0);
+        
     }
 }

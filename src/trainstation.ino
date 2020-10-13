@@ -1,14 +1,16 @@
 #include <sunset.h>
 #include <MQTT.h>
+#include <vl6180x.h>
 #include <map>
 
 #include "block.h"
-#include "houses.h"
+#include "adafruithouses.h"
+#include "fastledhouses.h"
 #include "station.h"
 #include "lamps.h"
 #include "lamp.h"
 
-#define APP_ID              94
+#define APP_ID              101
 
 #define TIME_BASE_YEAR      2020
 #define CST_OFFSET          -6
@@ -38,6 +40,7 @@
 #define BANK_4_PIN          D5
 
 #define MQTT_BUFF_SIZE      512
+#define VL6180X_ADDRESS     0x29
 
 const uint8_t _usDSTStart[22] = { 8,14,13,12,10, 9, 8,14,12,11,10, 9,14,13,12,11, 9};
 const uint8_t _usDSTEnd[22]   = { 1, 7, 6, 5, 3, 2, 1, 7, 5, 4, 3, 2, 7, 6, 5, 4, 2};
@@ -51,13 +54,16 @@ int g_appId;
 bool g_stationOn;
 bool g_lightsOn;
 
-Houses bank1(BANK_1_PIN, BANK_1_LEDS);
-Houses bank2(BANK_2_PIN, BANK_2_LEDS);
-Houses bank3(BANK_3_PIN, BANK_3_LEDS);
+VL6180xIdentification identification;
+VL6180x sensor(VL6180X_ADDRESS);
+
+FastLEDHouses bank1(BANK_1_PIN, BANK_1_LEDS);
+AdafruitHouses bank2(BANK_2_PIN, BANK_2_LEDS);
+AdafruitHouses bank3(BANK_3_PIN, BANK_3_LEDS);
 Station station(BANK_4_PIN, BANK_4_LEDS);
 Block blocks;
-Lamp lampD0(D0);
-Lamp lampD1(D1);
+Lamp lampTX(TX);
+Lamp lampRX(RX);
 Lamp lampD2(D2);
 Lamp lampA0(A0);
 Lamp lampA1(A1);
@@ -92,6 +98,21 @@ int currentTimeZone()
 
     Log.info("Returning %d as timezone offset", tz);
     return tz;
+}
+
+void printIdentification(struct VL6180xIdentification *temp)
+{
+    JSONBufferWriter writer(g_mqttBuffer, MQTT_BUFF_SIZE);
+    writer.beginObject();
+    writer.name("sensor").value("vl1608x");
+    writer.name("data");
+    writer.beginObject();
+        writer.name("MODEL_ID").value(temp->idModel);
+        writer.name("revision").value(String(temp->idModelRevMajor) + "." + String(temp->idModelRevMinor));
+    writer.endObject();
+    writer.endObject();
+    writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
+    client.publish("village/tof/startup", writer.buffer());
 }
 
 int turnOnSwitch(String num)
@@ -441,7 +462,7 @@ int setHouseColor(String colors)
                 break;
             case 2:
                 b = colors.substring(prev + 1).toInt();
-                blocks.setHouseColors(r, g, b);
+                blocks.setHouseColors(r, g, b, 0);
                 return 3;
             default:
                 continue;
@@ -450,32 +471,56 @@ int setHouseColor(String colors)
     return 0;
 }
 
+void tofSensorInit()
+{
+    Wire.begin(); //Start I2C library
+    delay(100); // delay .1s
+
+    sensor.getIdentification(&identification); // Retrieve manufacture info from device memory
+    printIdentification(&identification); // Helper function to print all the Module information
+
+    if(sensor.VL6180xInit() != 0){
+        Log.error("FAILED TO INITALIZE vl6180x sensor"); //Initialize device and check for errors
+        JSONBufferWriter writer(g_mqttBuffer, MQTT_BUFF_SIZE);
+        writer.beginObject();
+        writer.name("appid").value(g_appId);
+        writer.name("sensor").value("vl1680x");
+        writer.name("data");
+        writer.beginObject();
+            writer.name("startup").value("failed");
+        writer.endObject();
+        writer.endObject();
+        writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
+        client.publish("village/tof/startup", writer.buffer());
+    }; 
+
+    sensor.VL6180xDefautSettings(); //Load default settings to get started.
+}
+
+void checkTOFSensor()
+{
+    EVERY_N_MINUTES(1) {
+        JSONBufferWriter writer(g_mqttBuffer, MQTT_BUFF_SIZE);
+        writer.beginObject();
+        writer.name("appid").value(g_appId);
+        writer.name("sensor").value("vl1680x");
+        writer.name("data");
+        writer.beginObject();
+            writer.name("distance").value(sensor.getDistance());
+            writer.name("lux").value(sensor.getAmbientLight(GAIN_1));
+        writer.endObject();
+        writer.endObject();
+        writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
+        client.publish("village/tof/current", writer.buffer());
+    }
+}
+
 // setup() runs once, when the device is first turned on.
 void setup() 
 {
     g_lightsOn = false;
     g_stationOn = false;
     g_appId = APP_ID;
-
-    pinMode(D0, OUTPUT);
-    pinMode(D1, OUTPUT);
-    pinMode(D2, OUTPUT);
-    pinMode(A0, OUTPUT);
-    pinMode(A1, OUTPUT);
-    pinMode(A2, OUTPUT);
-    pinMode(A3, OUTPUT);
-    pinMode(A4, OUTPUT);
-    pinMode(A5, OUTPUT);
-
-    digitalWrite(D0, LOW);
-    digitalWrite(D1, LOW);
-    digitalWrite(D2, LOW);
-    digitalWrite(A0, LOW);
-    digitalWrite(A1, LOW);
-    digitalWrite(A2, LOW);
-    digitalWrite(A3, LOW);
-    digitalWrite(A4, LOW);
-    digitalWrite(A5, LOW);
 
     Time.zone(currentTimeZone());
     sun.setPosition(LATITUDE, LONGITUDE, currentTimeZone());
@@ -492,8 +537,7 @@ void setup()
     blocks.addHouses(&bank1);
     blocks.addHouses(&bank2);
     blocks.addHouses(&bank3);
-    lamps.addLamp(&lampD0);
-    lamps.addLamp(&lampD1);
+
     lamps.addLamp(&lampD2);
     lamps.addLamp(&lampA0);
     lamps.addLamp(&lampA1);
@@ -501,6 +545,8 @@ void setup()
     lamps.addLamp(&lampA3);
     lamps.addLamp(&lampA4);
     lamps.addLamp(&lampA5);
+    lamps.addLamp(&lampTX);
+    lamps.addLamp(&lampRX);
 
     blocks.turnOff();
     station.turnOff();
@@ -529,6 +575,7 @@ void setup()
     writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
     client.publish("village/startup", writer.buffer());
     station.turnOff();  // Do this twice, it doesn't seem to take the first time
+    tofSensorInit();
     int sunrise = static_cast<int>(sun.calcSunrise());
     int sunset = static_cast<int>(sun.calcSunset());
     int mpm = Time.minute() + (Time.hour() * 60);
@@ -587,4 +634,6 @@ void loop()
     if (afterSunrise(5) && g_stationOn) {
         turnOffNeighborhood();
     }
+
+    checkTOFSensor();
 }

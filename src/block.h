@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <map>
+#include <Particle.h>
 #include "houses.h"
 
 class Block {
@@ -22,7 +23,7 @@ public:
     int totalHousesControlled() { return m_totalHouses; }
     int getLastRandomBlock() { return m_lastRandomBlock; }
     int getLastRandomHouse() { return m_lastRandomHouse; }
-    void setHouseColors(uint8_t r, uint8_t g, uint8_t b);
+    void setHouseColors(uint8_t r, uint8_t g, uint8_t b, uint8_t w);
 
 private:
     bool hasBeenTested(int, int);

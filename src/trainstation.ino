@@ -10,7 +10,7 @@
 #include "lamps.h"
 #include "lamp.h"
 
-#define APP_ID              101
+#define APP_ID              104
 
 #define TIME_BASE_YEAR      2020
 #define CST_OFFSET          -6
@@ -42,6 +42,8 @@
 #define MQTT_BUFF_SIZE      512
 #define VL6180X_ADDRESS     0x29
 
+#define MIN_ENABLE_DISTANCE     100
+
 const uint8_t _usDSTStart[22] = { 8,14,13,12,10, 9, 8,14,12,11,10, 9,14,13,12,11, 9};
 const uint8_t _usDSTEnd[22]   = { 1, 7, 6, 5, 3, 2, 1, 7, 5, 4, 3, 2, 7, 6, 5, 4, 2};
 char g_mqttBuffer[MQTT_BUFF_SIZE];
@@ -53,11 +55,12 @@ char mqttBuffer[512];
 int g_appId;
 bool g_stationOn;
 bool g_lightsOn;
+bool g_pendingNotification;
 
 VL6180xIdentification identification;
 VL6180x sensor(VL6180X_ADDRESS);
 
-FastLEDHouses bank1(BANK_1_PIN, BANK_1_LEDS);
+AdafruitHouses bank1(BANK_1_PIN, BANK_1_LEDS);
 AdafruitHouses bank2(BANK_2_PIN, BANK_2_LEDS);
 AdafruitHouses bank3(BANK_3_PIN, BANK_3_LEDS);
 Station station(BANK_4_PIN, BANK_4_LEDS);
@@ -105,6 +108,7 @@ void printIdentification(struct VL6180xIdentification *temp)
     JSONBufferWriter writer(g_mqttBuffer, MQTT_BUFF_SIZE);
     writer.beginObject();
     writer.name("sensor").value("vl1608x");
+    writer.name("version").value(APP_ID);
     writer.name("data");
     writer.beginObject();
         writer.name("MODEL_ID").value(temp->idModel);
@@ -499,13 +503,33 @@ void tofSensorInit()
 
 void checkTOFSensor()
 {
+    JSONBufferWriter writer(g_mqttBuffer, MQTT_BUFF_SIZE);
+    if (sensor.getDistance() < MIN_ENABLE_DISTANCE && !g_pendingNotification) {
+        writer.beginObject();
+        writer.name("type").value("high");
+        writer.endObject();
+        writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
+        client.publish("village/tof/event", writer.buffer());
+        g_pendingNotification = true;
+        return;
+    }
+    
+    if (sensor.getDistance() >= MIN_ENABLE_DISTANCE && g_pendingNotification) {
+        writer.beginObject();
+        writer.name("type").value("low");
+        writer.endObject();
+        writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
+        client.publish("village/tof/event", writer.buffer());
+        g_pendingNotification = false;
+        return;
+    }
+
     EVERY_N_MINUTES(1) {
-        JSONBufferWriter writer(g_mqttBuffer, MQTT_BUFF_SIZE);
         writer.beginObject();
         writer.name("appid").value(g_appId);
-        writer.name("sensor").value("vl1680x");
-        writer.name("data");
+        writer.name("sensor");
         writer.beginObject();
+            writer.name("name").value("vl1680x");
             writer.name("distance").value(sensor.getDistance());
             writer.name("lux").value(sensor.getAmbientLight(GAIN_1));
         writer.endObject();
@@ -521,6 +545,7 @@ void setup()
     g_lightsOn = false;
     g_stationOn = false;
     g_appId = APP_ID;
+    g_pendingNotification = false;
 
     Time.zone(currentTimeZone());
     sun.setPosition(LATITUDE, LONGITUDE, currentTimeZone());

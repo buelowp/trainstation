@@ -8,7 +8,7 @@ public:
         m_pin = pin;
         m_leds = count;
     }
-    ~Houses();
+    ~Houses() {}
 
     static constexpr int MAX_HOUSES = 25;
     static constexpr int BANK_1_PIN = D6;

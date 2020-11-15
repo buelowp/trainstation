@@ -22,6 +22,7 @@ public:
 
     virtual void turnOn() = 0;
     virtual bool turnOn(int) = 0;
+    virtual bool turnOn(int, uint8_t) = 0;
     virtual void turnOff() = 0;
     virtual bool turnOff(int) = 0;
     virtual bool isOn(int) = 0;

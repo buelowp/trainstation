@@ -10,7 +10,7 @@
 #include "lamps.h"
 #include "lamp.h"
 
-#define APP_ID              104
+#define APP_ID              109
 
 #define TIME_BASE_YEAR      2020
 #define CST_OFFSET          -6
@@ -29,9 +29,9 @@
 #define LATITUDE            41.12345
 #define LONGITUDE           -87.98765
 
-#define BANK_1_LEDS         12
-#define BANK_2_LEDS         12
-#define BANK_3_LEDS         12
+#define BANK_1_LEDS         42
+#define BANK_2_LEDS         42
+#define BANK_3_LEDS         42
 #define BANK_4_LEDS         14
 
 #define BANK_1_PIN          D6
@@ -43,6 +43,7 @@
 #define VL6180X_ADDRESS     0x29
 
 #define MIN_ENABLE_DISTANCE     100
+#define TURNOFF_THRESHOLD       5.0
 
 const uint8_t _usDSTStart[22] = { 8,14,13,12,10, 9, 8,14,12,11,10, 9,14,13,12,11, 9};
 const uint8_t _usDSTEnd[22]   = { 1, 7, 6, 5, 3, 2, 1, 7, 5, 4, 3, 2, 7, 6, 5, 4, 2};
@@ -480,9 +481,6 @@ void tofSensorInit()
     Wire.begin(); //Start I2C library
     delay(100); // delay .1s
 
-    sensor.getIdentification(&identification); // Retrieve manufacture info from device memory
-    printIdentification(&identification); // Helper function to print all the Module information
-
     if(sensor.VL6180xInit() != 0){
         Log.error("FAILED TO INITALIZE vl6180x sensor"); //Initialize device and check for errors
         JSONBufferWriter writer(g_mqttBuffer, MQTT_BUFF_SIZE);
@@ -497,8 +495,9 @@ void tofSensorInit()
         writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
         client.publish("village/tof/startup", writer.buffer());
     }; 
-
     sensor.VL6180xDefautSettings(); //Load default settings to get started.
+    sensor.getIdentification(&identification); // Retrieve manufacture info from device memory
+    printIdentification(&identification); // Helper function to print all the Module information
 }
 
 void checkTOFSensor()
@@ -632,7 +631,7 @@ void loop()
         sendMQTTHeartBeat();
     }
 
-    if ((mpm >= 1320) && g_lightsOn) {
+    if ((mpm >= 1320) && g_lightsOn && (sensor.getAmbientLight(GAIN_1) <= TURNOFF_THRESHOLD)) {
         if (millis() > nextTimeout) {
             nextTimeout = turnOffNextHouse(true);
         }

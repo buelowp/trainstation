@@ -62,6 +62,21 @@ bool FastLEDHouses::turnOn(int house)
     return false;
 }
 
+bool FastLEDHouses::turnOn(int house, uint8_t bright)
+{    
+    int led = house * 2;
+    if (house < m_houseCount) {
+        Log.info("FastLEDHouses: Turning house %d on in bank %d", house, m_bank);
+        m_houses[led] = m_warmWhite;
+        m_houses[led + 1] = m_warmWhite;
+        FastLED.setBrightness(bright);
+        FastLED.show();
+        return true;
+    }
+    Log.error("FastLEDHouses: House %d is not valid", house);
+    return false;
+}
+
 void FastLEDHouses::turnOff()
 {
     Log.info("FastLEDHouses: Turning all FastLEDHouses off for bank %d", m_bank);

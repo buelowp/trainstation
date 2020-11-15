@@ -12,6 +12,7 @@ public:
 
     void turnOn() override;
     bool turnOn(int) override;
+    bool turnOn(int, uint8_t) override;
     void turnOff() override;
     bool turnOff(int) override;
     bool isOn(int) override;

@@ -19,7 +19,7 @@ AdafruitHouses::~AdafruitHouses()
 
 void AdafruitHouses::turnOn()
 {
-    Log.info("AdafruitHouses: Turning all AdafruitHouses on for bank %d", m_bank);
+    Log.info("AdafruitHouses: Turning all AdafruitHouses on");
     for (int i = 0; i < m_leds; i++) {
         m_houses->setColor(i, 0, 0, 0, 50);
     }
@@ -31,7 +31,7 @@ bool AdafruitHouses::turnOn(int house)
     int bright = random(50, 80);
 
     if (house < m_houseCount) {
-        Log.info("AdafruitHouses: Turning house %d on in bank %d", house, m_bank);
+        Log.info("AdafruitHouses: Turning house %d on", house);
         for (int i = 0; i < 7; i++) {
             m_houses->setColor(i + (house * 7), 0, 0, 0, bright);
         }
@@ -45,7 +45,7 @@ bool AdafruitHouses::turnOn(int house)
 bool AdafruitHouses::turnOn(int house, uint8_t bright)
 {
     if (house < m_houseCount) {
-        Log.info("AdafruitHouses: Turning house %d on in bank %d", house, m_bank);
+        Log.info("AdafruitHouses: Turning house %d on", house);
         for (int i = 0; i < 7; i++) {
             m_houses->setColor(i + (house * 7), 0, 0, 0, bright);
         }
@@ -58,7 +58,7 @@ bool AdafruitHouses::turnOn(int house, uint8_t bright)
 
 void AdafruitHouses::turnOff()
 {
-    Log.info("AdafruitHouses: Turning all AdafruitHouses off for bank %d", m_bank);
+    Log.info("AdafruitHouses: Turning all AdafruitHouses off");
 
     m_houses->clear();
     m_houses->show();
@@ -67,7 +67,7 @@ void AdafruitHouses::turnOff()
 bool AdafruitHouses::turnOff(int house)
 {
     if (house < m_houseCount) {
-        Log.info("AdafruitHouses: Turning house %d off in bank %d", house, m_bank);
+        Log.info("AdafruitHouses: Turning house %d off", house);
         for (int i = 0; i < 7; i++) {
             m_houses->setColor(i + (house * 7), 0, 0, 0);
         }

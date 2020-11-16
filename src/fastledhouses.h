@@ -26,4 +26,5 @@ public:
 private:
     CRGB m_warmWhite;
     CRGB m_houses[MAX_HOUSES * 2];
+    int m_bank;
 };

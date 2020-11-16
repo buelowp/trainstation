@@ -18,7 +18,6 @@ public:
 
     int numPixels() { return m_leds; }
     int numHouses() { return m_houseCount; }
-    int bank() { return m_bank; }
 
     virtual void turnOn() = 0;
     virtual bool turnOn(int) = 0;
@@ -35,6 +34,5 @@ public:
 protected:
     int m_leds;
     int m_houseCount;
-    int m_bank;
     int m_pin;
 };

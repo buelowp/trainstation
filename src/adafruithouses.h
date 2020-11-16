@@ -20,7 +20,7 @@ public:
     void setColor(uint8_t pin, uint8_t r, uint8_t g, uint8_t b) override;
     void setColors(uint8_t r, uint8_t g, uint8_t b, uint8_t w) override;
     void setColor(uint8_t pin, uint8_t r, uint8_t g, uint8_t b, uint8_t w) override;
-    bool isRGBWCapable() override { return false; }
+    bool isRGBWCapable() override { return true; }
 
 private:
     Adafruit_NeoPixel *m_houses;

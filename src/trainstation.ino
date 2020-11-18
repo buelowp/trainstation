@@ -10,7 +10,7 @@
 #include "lamps.h"
 #include "lamp.h"
 
-#define APP_ID              115
+#define APP_ID              119
 
 #define TIME_BASE_YEAR      2020
 #define CST_OFFSET          -6
@@ -29,10 +29,11 @@
 #define LATITUDE            41.12345
 #define LONGITUDE           -87.98765
 
-#define BANK_1_LEDS         42
-#define BANK_2_LEDS         42
-#define BANK_3_LEDS         42
-#define BANK_4_LEDS         14
+#define JEWEL_LED_COUNT     7
+#define BANK_1_LEDS         (6 * JEWEL_LED_COUNT)      // 6 houses * 7 leds
+#define BANK_2_LEDS         (6 * JEWEL_LED_COUNT)
+#define BANK_3_LEDS         (6 * JEWEL_LED_COUNT)
+#define BANK_4_LEDS         (2 * JEWEL_LED_COUNT)      // 2 jewels * 7 leds
 
 #define BANK_1_PIN          D6
 #define BANK_2_PIN          D3
@@ -530,6 +531,16 @@ void checkTOFSensor()
     }
 }
 
+int showDistance()
+{
+    return sensor.getDistance();
+}
+
+double showLight()
+{
+    return sensor.getAmbientLight(GAIN_1);
+}
+
 // setup() runs once, when the device is first turned on.
 void setup() 
 {
@@ -573,6 +584,8 @@ void setup()
     Particle.variable("sunrise", calcSunrise);
     Particle.variable("appid", g_appId);
     Particle.variable("timezone", currentTimeZone);
+    Particle.variable("light", showLight);
+    Particle.variable("distance", showDistance);
     Particle.function("turnon", turnOnBank);
     Particle.function("switch", turnOnSwitch);
     Particle.function("turnoff", turnOffBank);

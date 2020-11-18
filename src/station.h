@@ -2,7 +2,6 @@
 #define __STATION_H__
 
 #include <neopixel.h>
-#include <MQTT.h>
 
 class Station
 {

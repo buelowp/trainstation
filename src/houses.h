@@ -1,38 +1,38 @@
-#ifndef __HOUSES_H__
-#define __HOUSES_H__
-
-#include <FastLED.h>
-
-FASTLED_USING_NAMESPACE
-
-#define MAX_HOUSES          10      // this must be even, each house has 2 leds
-#define BANK_1_PIN          D6
-#define BANK_2_PIN          D3
-#define BANK_3_PIN          D4
-#define BANK_4_PIN          D5
+#pragma once
+#include <Particle.h>
 
 class Houses {
 public:
-    Houses(int, int);
-    ~Houses();
+    Houses(int pin, int count)
+    {
+        m_pin = pin;
+        m_leds = count;
+    }
+    ~Houses() {}
 
-    void turnOn();
-    bool turnOn(int);
-    void turnOff();
-    bool turnOff(int);
-    bool turnOffNextHouse();
+    static constexpr int MAX_HOUSES = 25;
+    static constexpr int BANK_1_PIN = D6;
+    static constexpr int BANK_2_PIN = D3;
+    static constexpr int BANK_3_PIN = D4;
+    static constexpr int BANK_4_PIN = D5;
+
     int numPixels() { return m_leds; }
     int numHouses() { return m_houseCount; }
-    int bank() { return m_bank; }
-    bool isOn(int);
-    void setColors(uint8_t r, uint8_t g, uint8_t b);
 
-private:
-    CRGB m_warmWhite;
-    CRGB m_houses[MAX_HOUSES * 2];
+    virtual void turnOn() = 0;
+    virtual bool turnOn(int) = 0;
+    virtual bool turnOn(int, uint8_t) = 0;
+    virtual void turnOff() = 0;
+    virtual bool turnOff(int) = 0;
+    virtual bool isOn(int) = 0;
+    virtual void setColors(uint8_t r, uint8_t g, uint8_t b) = 0;
+    virtual void setColor(uint8_t pin, uint8_t r, uint8_t g, uint8_t b) = 0;
+    virtual void setColors(uint8_t r, uint8_t g, uint8_t b, uint8_t w) = 0;
+    virtual void setColor(uint8_t pin, uint8_t r, uint8_t g, uint8_t b, uint8_t w) = 0;
+    virtual bool isRGBWCapable() = 0;
+
+protected:
     int m_leds;
     int m_houseCount;
-    int m_bank;
+    int m_pin;
 };
-
-#endif

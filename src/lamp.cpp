@@ -2,6 +2,8 @@
 
 Lamp::Lamp(int pin) : m_pin(pin)
 {
+    pinMode(m_pin, OUTPUT);
+    digitalWrite(m_pin, LOW);
 }
 
 Lamp::~Lamp()

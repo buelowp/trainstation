@@ -8,7 +8,7 @@ extern int g_appId;
 
 Station::Station(int pin, int count) : m_leds(count), m_pin(pin)
 {
-    m_station = new Adafruit_NeoPixel(m_leds, D5, SK6812RGBW);
+    m_station = new Adafruit_NeoPixel(m_leds, pin, Adafruit_NeoPixel::SK6812RGBW);
     m_station->begin();
     m_station->show();
     Log.info("Created a new station on pin %d with %d leds", pin, m_leds);

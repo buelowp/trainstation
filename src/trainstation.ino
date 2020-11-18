@@ -1,14 +1,16 @@
 #include <sunset.h>
 #include <MQTT.h>
+#include <vl6180x.h>
 #include <map>
 
-#include "block.h"
-#include "houses.h"
+#include "village.h"
+#include "adafruithouses.h"
+#include "fastledhouses.h"
 #include "station.h"
 #include "lamps.h"
 #include "lamp.h"
 
-#define APP_ID              94
+#define APP_ID              119
 
 #define TIME_BASE_YEAR      2020
 #define CST_OFFSET          -6
@@ -27,10 +29,11 @@
 #define LATITUDE            41.12345
 #define LONGITUDE           -87.98765
 
-#define BANK_1_LEDS         12
-#define BANK_2_LEDS         12
-#define BANK_3_LEDS         12
-#define BANK_4_LEDS         14
+#define JEWEL_LED_COUNT     7
+#define BANK_1_LEDS         (6 * JEWEL_LED_COUNT)      // 6 houses * 7 leds
+#define BANK_2_LEDS         (6 * JEWEL_LED_COUNT)
+#define BANK_3_LEDS         (6 * JEWEL_LED_COUNT)
+#define BANK_4_LEDS         (2 * JEWEL_LED_COUNT)      // 2 jewels * 7 leds
 
 #define BANK_1_PIN          D6
 #define BANK_2_PIN          D3
@@ -38,6 +41,10 @@
 #define BANK_4_PIN          D5
 
 #define MQTT_BUFF_SIZE      512
+#define VL6180X_ADDRESS     0x29
+
+#define MIN_ENABLE_DISTANCE     100
+#define TURNOFF_THRESHOLD       5.0
 
 const uint8_t _usDSTStart[22] = { 8,14,13,12,10, 9, 8,14,12,11,10, 9,14,13,12,11, 9};
 const uint8_t _usDSTEnd[22]   = { 1, 7, 6, 5, 3, 2, 1, 7, 5, 4, 3, 2, 7, 6, 5, 4, 2};
@@ -50,14 +57,18 @@ char mqttBuffer[512];
 int g_appId;
 bool g_stationOn;
 bool g_lightsOn;
+bool g_pendingNotification;
 
-Houses bank1(BANK_1_PIN, BANK_1_LEDS);
-Houses bank2(BANK_2_PIN, BANK_2_LEDS);
-Houses bank3(BANK_3_PIN, BANK_3_LEDS);
+VL6180xIdentification identification;
+VL6180x sensor(VL6180X_ADDRESS);
+
+AdafruitHouses block1(BANK_1_PIN, BANK_1_LEDS);
+AdafruitHouses block2(BANK_2_PIN, BANK_2_LEDS);
+AdafruitHouses block3(BANK_3_PIN, BANK_3_LEDS);
 Station station(BANK_4_PIN, BANK_4_LEDS);
-Block blocks;
-Lamp lampD0(D0);
-Lamp lampD1(D1);
+Village village;
+Lamp lampTX(TX);
+Lamp lampRX(RX);
 Lamp lampD2(D2);
 Lamp lampA0(A0);
 Lamp lampA1(A1);
@@ -94,6 +105,22 @@ int currentTimeZone()
     return tz;
 }
 
+void printIdentification(struct VL6180xIdentification *temp)
+{
+    JSONBufferWriter writer(g_mqttBuffer, MQTT_BUFF_SIZE);
+    writer.beginObject();
+    writer.name("sensor").value("vl1608x");
+    writer.name("version").value(APP_ID);
+    writer.name("data");
+    writer.beginObject();
+        writer.name("MODEL_ID").value(temp->idModel);
+        writer.name("revision").value(String(temp->idModelRevMajor) + "." + String(temp->idModelRevMinor));
+    writer.endObject();
+    writer.endObject();
+    writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
+    client.publish("village/tof/startup", writer.buffer());
+}
+
 int turnOnSwitch(String num)
 {
     Log.info("Turning on switch %ld", num.toInt());
@@ -107,13 +134,13 @@ int turnOffBank(String num)
 
     switch (num.toInt()){
         case 0:
-            bank1.turnOff();
+            block1.turnOff();
             break;
         case 1:
-            bank2.turnOff();
+            block2.turnOff();
             break;
         case 2:
-            bank3.turnOff();
+            block3.turnOff();
             break;
         case 3:
             station.turnOff();
@@ -131,16 +158,16 @@ int turnOnBank(String num)
 
     switch (num.toInt()) {
         case 0:
-            Log.info("Setting %d pixels on bank1 to white", bank1.numPixels());
-            bank1.turnOn();
+            Log.info("Setting %d pixels on block1 to white", block1.numPixels());
+            block1.turnOn();
             break;
         case 1:
-            Log.info("Setting %d pixels on bank2 to white", bank2.numPixels());
-            bank2.turnOn();
+            Log.info("Setting %d pixels on block2 to white", block2.numPixels());
+            block2.turnOn();
             break;
         case 2:
-            Log.info("Setting %d pixels on bank3 to white", bank3.numPixels());
-            bank3.turnOn();
+            Log.info("Setting %d pixels on block3 to white", block3.numPixels());
+            block3.turnOn();
             break;
         case 3:
             station.turnOn();
@@ -179,12 +206,12 @@ double calcSunset()
     return sun.calcSunset();
 }
 
-bool afterSunset(int offset)
+bool afterSunset()
 {
     int sunset = static_cast<int>(sun.calcSunset());
     int mpm = Time.minute() + (Time.hour() * 60);
 
-    if (mpm >= (sunset + offset)) {
+    if (mpm >= (sunset)) {
         return true;
     }
 
@@ -196,13 +223,12 @@ bool afterSunset(int offset)
  * be earlier than expected, and we can't know what that value
  * is, so we just set it to be 60 minutes earlier.
  */
-bool afterSunrise(int offset)
+bool afterSunrise()
 {
     int sunrise = static_cast<int>(sun.calcSunrise());
-    int sunset = static_cast<int>(sun.calcSunset());
     int mpm = Time.minute() + (Time.hour() * 60);
 
-    if (mpm >= (sunrise + offset) && (mpm < (sunset - 60))) {
+    if (mpm >= sunrise) {
         return true;
     }
 
@@ -263,7 +289,7 @@ void turnOnNeighborhood()
 system_tick_t turnOffNextHouse(bool fast)
 {   
     int start = ONE_MINUTE;
-    int end = FIVE_MINUTES;
+    int end = THREE_MINUTES;
     int mpm = Time.minute() + (Time.hour() * 60);
 
     if (fast) {
@@ -272,7 +298,7 @@ system_tick_t turnOffNextHouse(bool fast)
     }
     
     system_tick_t nextTimeout = random(start, end) + millis();
-    g_lightsOn = blocks.turnOffRandomHouse();
+    g_lightsOn = village.turnOffRandomHouse();
     if (g_lightsOn) {
         Log.info("%s: Turned off random house, will do the next one in %ld millis", __PRETTY_FUNCTION__, nextTimeout - millis());
         JSONBufferWriter writer(g_mqttBuffer, sizeof(g_mqttBuffer) - 1);
@@ -285,8 +311,8 @@ system_tick_t turnOffNextHouse(bool fast)
         writer.name("house");
             writer.beginObject();
             writer.name("action").value("off");
-            writer.name("house").value(blocks.getLastRandomHouse());
-            writer.name("block").value(blocks.getLastRandomBlock());
+            writer.name("house").value(village.getLastRandomHouse());
+            writer.name("block").value(village.getLastRandomBlock());
             writer.name("g_lightsOn").value(g_lightsOn);
             writer.endObject();
         writer.endObject();
@@ -319,7 +345,7 @@ system_tick_t turnOnNextHouse(bool fast)
 {
     int mpm = Time.minute() + (Time.hour() * 60);
     int start = ONE_MINUTE;
-    int end = FIVE_MINUTES;
+    int end = THREE_MINUTES;
 
     if (fast) {
         start = ONE_SECOND;
@@ -327,7 +353,7 @@ system_tick_t turnOnNextHouse(bool fast)
     }
     
     system_tick_t nextTimeout = random(start, end) + millis();
-    g_lightsOn = !blocks.turnOnRandomHouse();
+    g_lightsOn = !village.turnOnRandomHouse();
     if (!g_lightsOn) {
         Log.info("%s: Turned on random house, will do the next one in %ld millis", __PRETTY_FUNCTION__, nextTimeout - millis());
         JSONBufferWriter writer(g_mqttBuffer, sizeof(g_mqttBuffer) - 1);
@@ -340,8 +366,8 @@ system_tick_t turnOnNextHouse(bool fast)
         writer.name("house");
             writer.beginObject();
             writer.name("action").value("on");
-            writer.name("house").value(blocks.getLastRandomHouse());
-            writer.name("block").value(blocks.getLastRandomBlock());
+            writer.name("house").value(village.getLastRandomHouse());
+            writer.name("block").value(village.getLastRandomBlock());
             writer.name("g_lightsOn").value(g_lightsOn);
             writer.endObject();
         writer.endObject();
@@ -379,17 +405,24 @@ void sendMQTTHeartBeat()
     Log.info("%s: Sunset at %f, current mpm %d, lights on %d", __PRETTY_FUNCTION__, sunset, mpm, g_lightsOn);
     JSONBufferWriter writer(g_mqttBuffer, sizeof(g_mqttBuffer) - 1);
     writer.beginObject();
-    writer.name("appid").value(g_appId);
-    writer.name("village");
-        writer.beginObject();
-        writer.name("houses").value(g_lightsOn);
-        writer.name("station").value(g_stationOn);
-        writer.endObject();
-    writer.name("time");
-        writer.beginObject();
-        writer.name("mpm").value(mpm);
-        writer.name("sunrise").value(sunrise);
-        writer.name("sunset").value(sunset);
+        writer.name("appid").value(g_appId);
+        writer.name("village");
+            writer.beginObject();
+                writer.name("houses").value(g_lightsOn);
+                writer.name("station").value(g_stationOn);
+            writer.endObject();
+        writer.name("time");
+            writer.beginObject();
+                writer.name("mpm").value(mpm);
+                writer.name("sunrise").value(sunrise);
+                writer.name("sunset").value(sunset);
+            writer.endObject();
+        writer.name("sensor");
+            writer.beginObject();
+                writer.name("name").value("vl1680x");
+                writer.name("distance").value(sensor.getDistance());
+                writer.name("lux").value(sensor.getAmbientLight(GAIN_1));
+            writer.endObject();
         writer.endObject();
     writer.endObject();
     writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
@@ -441,7 +474,7 @@ int setHouseColor(String colors)
                 break;
             case 2:
                 b = colors.substring(prev + 1).toInt();
-                blocks.setHouseColors(r, g, b);
+                village.setHouseColors(r, g, b, 0);
                 return 3;
             default:
                 continue;
@@ -450,32 +483,71 @@ int setHouseColor(String colors)
     return 0;
 }
 
+void tofSensorInit()
+{
+    Wire.begin(); //Start I2C library
+    delay(100); // delay .1s
+
+    if(sensor.VL6180xInit() != 0){
+        Log.error("FAILED TO INITALIZE vl6180x sensor"); //Initialize device and check for errors
+        JSONBufferWriter writer(g_mqttBuffer, MQTT_BUFF_SIZE);
+        writer.beginObject();
+        writer.name("appid").value(g_appId);
+        writer.name("sensor").value("vl1680x");
+        writer.name("data");
+        writer.beginObject();
+            writer.name("startup").value("failed");
+        writer.endObject();
+        writer.endObject();
+        writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
+        client.publish("village/tof/startup", writer.buffer());
+    }; 
+    sensor.VL6180xDefautSettings(); //Load default settings to get started.
+    sensor.getIdentification(&identification); // Retrieve manufacture info from device memory
+    printIdentification(&identification); // Helper function to print all the Module information
+}
+
+void checkTOFSensor()
+{
+    JSONBufferWriter writer(g_mqttBuffer, MQTT_BUFF_SIZE);
+    if (sensor.getDistance() < MIN_ENABLE_DISTANCE && !g_pendingNotification) {
+        writer.beginObject();
+        writer.name("type").value("high");
+        writer.endObject();
+        writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
+        client.publish("village/tof/event", writer.buffer());
+        g_pendingNotification = true;
+        return;
+    }
+    
+    if (sensor.getDistance() >= MIN_ENABLE_DISTANCE && g_pendingNotification) {
+        writer.beginObject();
+        writer.name("type").value("low");
+        writer.endObject();
+        writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
+        client.publish("village/tof/event", writer.buffer());
+        g_pendingNotification = false;
+        return;
+    }
+}
+
+int showDistance()
+{
+    return sensor.getDistance();
+}
+
+double showLight()
+{
+    return sensor.getAmbientLight(GAIN_1);
+}
+
 // setup() runs once, when the device is first turned on.
 void setup() 
 {
     g_lightsOn = false;
     g_stationOn = false;
     g_appId = APP_ID;
-
-    pinMode(D0, OUTPUT);
-    pinMode(D1, OUTPUT);
-    pinMode(D2, OUTPUT);
-    pinMode(A0, OUTPUT);
-    pinMode(A1, OUTPUT);
-    pinMode(A2, OUTPUT);
-    pinMode(A3, OUTPUT);
-    pinMode(A4, OUTPUT);
-    pinMode(A5, OUTPUT);
-
-    digitalWrite(D0, LOW);
-    digitalWrite(D1, LOW);
-    digitalWrite(D2, LOW);
-    digitalWrite(A0, LOW);
-    digitalWrite(A1, LOW);
-    digitalWrite(A2, LOW);
-    digitalWrite(A3, LOW);
-    digitalWrite(A4, LOW);
-    digitalWrite(A5, LOW);
+    g_pendingNotification = false;
 
     Time.zone(currentTimeZone());
     sun.setPosition(LATITUDE, LONGITUDE, currentTimeZone());
@@ -489,11 +561,10 @@ void setup()
         Log.error("%s: Unable to connect to MQTT", __PRETTY_FUNCTION__);
     }
 
-    blocks.addHouses(&bank1);
-    blocks.addHouses(&bank2);
-    blocks.addHouses(&bank3);
-    lamps.addLamp(&lampD0);
-    lamps.addLamp(&lampD1);
+    village.addBlock(&block1);
+    village.addBlock(&block2);
+    village.addBlock(&block3);
+
     lamps.addLamp(&lampD2);
     lamps.addLamp(&lampA0);
     lamps.addLamp(&lampA1);
@@ -501,8 +572,10 @@ void setup()
     lamps.addLamp(&lampA3);
     lamps.addLamp(&lampA4);
     lamps.addLamp(&lampA5);
+    lamps.addLamp(&lampTX);
+    lamps.addLamp(&lampRX);
 
-    blocks.turnOff();
+    village.turnOff();
     station.turnOff();
     lamps.turnOff();
 
@@ -511,27 +584,40 @@ void setup()
     Particle.variable("sunrise", calcSunrise);
     Particle.variable("appid", g_appId);
     Particle.variable("timezone", currentTimeZone);
+    Particle.variable("light", showLight);
+    Particle.variable("distance", showDistance);
     Particle.function("turnon", turnOnBank);
     Particle.function("switch", turnOnSwitch);
     Particle.function("turnoff", turnOffBank);
     Particle.function("housecolor", setHouseColor);
 
+    int sunrise = static_cast<int>(sun.calcSunrise());
+    int sunset = static_cast<int>(sun.calcSunset());
+    int mpm = Time.minute() + (Time.hour() * 60);
+
     JSONBufferWriter writer(g_mqttBuffer, sizeof(g_mqttBuffer) - 1);
     writer.beginObject();
     writer.name("village");
-    writer.beginObject();
-    writer.name("action").value("startup");
-    writer.name("appid").value(g_appId);
-    writer.name("houses").value(g_lightsOn);
-    writer.name("station").value(g_stationOn);
-    writer.endObject();
+        writer.beginObject();
+        writer.name("action").value("startup");
+        writer.name("appid").value(g_appId);
+        writer.name("state");
+            writer.beginObject();
+                writer.name("houses").value(g_lightsOn);
+                writer.name("station").value(g_stationOn);
+            writer.endObject();
+        writer.name("timing");
+            writer.beginObject();
+                writer.name("sunrise").value(sunrise);
+                writer.name("sunset").value(sunset);
+                writer.name("now").value(mpm);
+            writer.endObject();
+        writer.endObject();
     writer.endObject();
     writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
     client.publish("village/startup", writer.buffer());
     station.turnOff();  // Do this twice, it doesn't seem to take the first time
-    int sunrise = static_cast<int>(sun.calcSunrise());
-    int sunset = static_cast<int>(sun.calcSunset());
-    int mpm = Time.minute() + (Time.hour() * 60);
+    tofSensorInit();
     Log.info("%s: Setup done for app version %d, mpm=%d, sunrise=%d, sunset=%d", __PRETTY_FUNCTION__, g_appId, mpm, sunrise, sunset);
 }
 
@@ -540,7 +626,7 @@ void loop()
     static system_tick_t nextTimeout = 0;
     static int lastHour = 24;
     int currentHour = Time.hour();
-    int mpm = Time.minute() + (Time.hour() * 60);
+    uint32_t mpm = (Time.hour() * 60) + Time.minute();
 
     EVERY_N_MILLIS(ONE_SECOND) {
         if (client.isConnected())
@@ -560,31 +646,33 @@ void loop()
         sendMQTTHeartBeat();
     }
 
-    if ((mpm >= 1320) && g_lightsOn) {
+    if ((mpm >= 1380) && g_lightsOn) {
         if (millis() > nextTimeout) {
-            nextTimeout = turnOffNextHouse(true);
+            nextTimeout = turnOffNextHouse(false);
         }
     }
-    else if ((mpm < 1320) && afterSunset(-10) && !g_lightsOn) {
+    else if ((mpm < 1380) && afterSunset() && !g_lightsOn) {
         if (millis() > nextTimeout) {
-            nextTimeout = turnOnNextHouse(true);
+            nextTimeout = turnOnNextHouse(false);
         }
     }
-    else if (afterSunrise(-10) && !afterSunset(-355) && g_lightsOn) {
+    else if (afterSunrise() && !afterSunset() && g_lightsOn) {
         if (millis() > nextTimeout) {
-            nextTimeout = turnOffNextHouse(true);
+            nextTimeout = turnOffNextHouse(false);
         }
     }
-    else if ((mpm >= 270) && !afterSunrise(-10) && !g_lightsOn) {
+    else if (!afterSunrise() && !g_lightsOn) {
         if (millis() > nextTimeout) {
             nextTimeout = turnOnNextHouse(false);
         }
     }
 
-    if (afterSunset(0) && !g_stationOn) {
+    if (afterSunset() && !g_stationOn) {
         turnOnNeighborhood();
     }
-    if (afterSunrise(5) && g_stationOn) {
+    if (afterSunrise() && !afterSunset() && g_stationOn) {
         turnOffNeighborhood();
     }
+
+    checkTOFSensor();
 }

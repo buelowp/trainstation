@@ -1,6 +1,13 @@
 #pragma once
 #include <Particle.h>
 
+static constexpr uint32_t Color[4] = {
+    0x00FF0000,     // RED
+    0x000000FF,     // BLUE
+    0x0000FF00,     // GREEN
+    0x00FFFF00,     // YELLOW
+};
+
 class Houses {
 public:
     Houses(int pin, int count)
@@ -22,6 +29,7 @@ public:
     virtual void turnOn() = 0;
     virtual bool turnOn(int) = 0;
     virtual bool turnOn(int, uint8_t) = 0;
+    virtual bool turnOn(int, uint32_t, uint8_t) = 0;
     virtual void turnOff() = 0;
     virtual bool turnOff(int) = 0;
     virtual bool isOn(int) = 0;

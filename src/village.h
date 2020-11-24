@@ -14,6 +14,7 @@ public:
     void addBlock(Houses *block);
     bool turnOffRandomHouse();
     bool turnOnRandomHouse();
+    bool turnOnRandomHouseWithRandomColor();
     bool turnOffHouseByIndex(int, int);
     bool turnOnHouseByIndex(int, int);
     void turnOnBlock(int);

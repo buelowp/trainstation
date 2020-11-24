@@ -10,7 +10,7 @@
 #include "lamps.h"
 #include "lamp.h"
 
-#define APP_ID              119
+#define APP_ID              130
 
 #define TIME_BASE_YEAR      2020
 #define CST_OFFSET          -6
@@ -44,7 +44,7 @@
 #define VL6180X_ADDRESS     0x29
 
 #define MIN_ENABLE_DISTANCE     100
-#define TURNOFF_THRESHOLD       5.0
+#define TURNOFF_THRESHOLD       8.0
 
 const uint8_t _usDSTStart[22] = { 8,14,13,12,10, 9, 8,14,12,11,10, 9,14,13,12,11, 9};
 const uint8_t _usDSTEnd[22]   = { 1, 7, 6, 5, 3, 2, 1, 7, 5, 4, 3, 2, 7, 6, 5, 4, 2};
@@ -288,7 +288,7 @@ void turnOnNeighborhood()
 
 system_tick_t turnOffNextHouse(bool fast)
 {   
-    int start = ONE_MINUTE;
+    int start = THIRTY_SECONDS;
     int end = THREE_MINUTES;
     int mpm = Time.minute() + (Time.hour() * 60);
 
@@ -314,6 +314,7 @@ system_tick_t turnOffNextHouse(bool fast)
             writer.name("house").value(village.getLastRandomHouse());
             writer.name("block").value(village.getLastRandomBlock());
             writer.name("g_lightsOn").value(g_lightsOn);
+            writer.name("next").value(static_cast<int>(nextTimeout));
             writer.endObject();
         writer.endObject();
         writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
@@ -326,12 +327,12 @@ system_tick_t turnOffNextHouse(bool fast)
         writer.name("appid").value(g_appId);
         writer.name("time");
             writer.beginObject();
-            writer.name("mpm").value(mpm);
+                writer.name("mpm").value(mpm);
             writer.endObject();
-        writer.name("house");
+            writer.name("house");
             writer.beginObject();
-            writer.name("action").value("complete");
-            writer.name("g_lightsOn").value(g_lightsOn);
+                writer.name("action").value("complete");
+                writer.name("g_lightsOn").value(g_lightsOn);
             writer.endObject();
         writer.endObject();
         writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
@@ -344,7 +345,7 @@ system_tick_t turnOffNextHouse(bool fast)
 system_tick_t turnOnNextHouse(bool fast)
 {
     int mpm = Time.minute() + (Time.hour() * 60);
-    int start = ONE_MINUTE;
+    int start = THIRTY_SECONDS;
     int end = THREE_MINUTES;
 
     if (fast) {
@@ -353,7 +354,11 @@ system_tick_t turnOnNextHouse(bool fast)
     }
     
     system_tick_t nextTimeout = random(start, end) + millis();
-    g_lightsOn = !village.turnOnRandomHouse();
+    if ((Time.day() == 25 || Time.day() == 24) && (Time.month() == 12))
+        g_lightsOn = !village.turnOnRandomHouseWithRandomColor();
+    else
+        g_lightsOn = !village.turnOnRandomHouse();
+
     if (!g_lightsOn) {
         Log.info("%s: Turned on random house, will do the next one in %ld millis", __PRETTY_FUNCTION__, nextTimeout - millis());
         JSONBufferWriter writer(g_mqttBuffer, sizeof(g_mqttBuffer) - 1);
@@ -369,6 +374,7 @@ system_tick_t turnOnNextHouse(bool fast)
             writer.name("house").value(village.getLastRandomHouse());
             writer.name("block").value(village.getLastRandomBlock());
             writer.name("g_lightsOn").value(g_lightsOn);
+            writer.name("next").value(static_cast<int>(nextTimeout));
             writer.endObject();
         writer.endObject();
         writer.buffer()[std::min(writer.bufferSize(), writer.dataSize())] = 0;
@@ -642,7 +648,7 @@ void loop()
     }
     lastHour = currentHour;
 
-    EVERY_N_MILLIS(ONE_HOUR) {
+    EVERY_N_MILLIS(ONE_MINUTE) {
         sendMQTTHeartBeat();
     }
 

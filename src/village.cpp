@@ -61,6 +61,50 @@ bool Village::turnOnRandomHouse()
     return false;
 }
 
+/**
+ * Returns true if we found something to turn off, false otherwise
+ */
+bool Village::turnOnRandomHouseWithRandomColor()
+{
+    int index = random(0, m_blocks.size());     /* Start somewhere */
+    Houses *block = m_blocks[index];
+    int house = random(0, block->numHouses());
+    static int color = 0;
+    int bright = random(70, 100);
+
+    if (!block->isOn(house)) {
+        Log.info("%s:%d: Block: Turning on block:house %d:%d to color %ld", __FUNCTION__, __LINE__, index, house, Color[color]);
+        block->turnOn(house, Color[color++], bright);
+        m_lastRandomBlock = index;
+        m_lastRandomHouse = house;
+        if (color == 4)
+            color = 0;
+        return true;
+    }
+    else {
+        /*
+         * If we can't find a random house, to avoid getting too complicated, just start from the beginning.
+         * This will have a pseudo random effect as many random houses will be chosen, even if not all
+         */
+        for (auto it : m_blocks) {
+            for (int i = 0; i < it.second->numHouses(); i++) {
+                if (!it.second->isOn(i)) {
+                    Log.info("%s:%d: Block: Turning on block:house %d:%d to color %ld", __FUNCTION__, __LINE__, it.first, i, Color[color]);
+                    it.second->turnOn(i, Color[color++], bright);
+                    m_lastRandomBlock = index;
+                    m_lastRandomHouse = house;
+                    if (color == 4)
+                        color = 0;
+                    return true;
+                }
+            }
+        }
+    }
+    Log.info("Block: All houses appear to be on");
+    color = 0;
+    return false;
+}
+
 bool Village::turnOffRandomHouse()
 {
     int index = random(0, m_blocks.size());     /* Start somewhere */

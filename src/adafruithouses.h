@@ -13,6 +13,7 @@ public:
     void turnOn() override;
     bool turnOn(int) override;
     bool turnOn(int, uint8_t) override;
+    bool turnOn(int, uint32_t, uint8_t) override;
     void turnOff() override;
     bool turnOff(int) override;
     bool isOn(int) override;
@@ -20,6 +21,7 @@ public:
     void setColor(uint8_t pin, uint8_t r, uint8_t g, uint8_t b) override;
     void setColors(uint8_t r, uint8_t g, uint8_t b, uint8_t w) override;
     void setColor(uint8_t pin, uint8_t r, uint8_t g, uint8_t b, uint8_t w) override;
+    uint32_t color(int);
     bool isRGBWCapable() override { return true; }
     bool allOn();
 

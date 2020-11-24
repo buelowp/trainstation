@@ -14,6 +14,7 @@ public:
     void turnOn() override;
     bool turnOn(int) override;
     bool turnOn(int, uint8_t) override;
+    bool turnOn(int, uint32_t, uint8_t) override;
     void turnOff() override;
     bool turnOff(int) override;
     bool isOn(int) override;

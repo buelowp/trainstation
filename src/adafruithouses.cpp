@@ -43,6 +43,21 @@ bool AdafruitHouses::turnOn(int house)
     return false;
 }
 
+bool AdafruitHouses::turnOn(int house, uint32_t color, uint8_t bright)
+{
+    if (house < m_houseCount) {
+        Log.info("AdafruitHouses: Turning house %d on", house);
+        for (int i = 0; i < 7; i++) {
+            m_houses->setPixelColor(i + (house * 7), color);
+        }
+        m_houses->setBrightness(bright);
+        m_houses->show();
+        return true;
+    }
+    Log.error("AdafruitHouses: House %d is not valid", house);
+    return false;
+}
+
 bool AdafruitHouses::turnOn(int house, uint8_t bright)
 {
     if (house < m_houseCount) {
@@ -125,4 +140,13 @@ bool AdafruitHouses::allOn()
     }
 
     return state;
+}
+
+uint32_t AdafruitHouses::color(int house)
+{
+    if (house < m_houseCount) {
+        return m_houses->getPixelColor(house * 7);
+    }
+
+    return 0xFFFFFFFF;
 }

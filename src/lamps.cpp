@@ -57,6 +57,6 @@ void Lamps::staggerOn()
     Log.info("Lamps: Staggering street lamps on");
     for (size_t i = 0; i < m_lamps.size(); i++) {
         m_lamps[i]->turnOn();
-        delay(random(1500, 2550));
+        delay(random(500, 1500));
     }
 }
